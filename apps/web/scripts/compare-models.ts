@@ -3,9 +3,11 @@
  * pass rate, latency, neurons and tool-argument errors. Calls models directly, not through
  * AI Gateway, so its rate limit and cache do not affect the numbers.
  *
- *   pnpm compare-models [--runs N] [--hints] [model ...]
+ *   pnpm compare-models [--runs N] [--no-hints] [model ...]
  *
- * --hints: the rule parser reads each prompt and its filters are applied to every search (planned for the app).
+ * Default models: the chosen model and its fallback. Pass other model IDs to compare them.
+ * Parser hints are on by default, as in the app: the rule parser's filters apply to every search.
+ * --no-hints measures the model alone.
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
@@ -20,15 +22,10 @@ import { buildMovieParserConfig } from "../src/movies/config.ts";
 import { chipsToSearchHints, mergeSearchHints, type SearchHints } from "../src/movies/hints.ts";
 import { createMovieTools } from "../src/movies/tools.ts";
 
-const { values: cli, positionals } = parseArgs({ allowPositionals: true, options: { runs: { type: "string", default: "1" }, hints: { type: "boolean", default: false } } });
+const { values: cli, positionals } = parseArgs({ allowPositionals: true, allowNegative: true, options: { runs: { type: "string", default: "1" }, hints: { type: "boolean", default: true } } });
 const HINTS = cli.hints;
 const RUNS = Number(cli.runs);
-const MODELS = positionals.length ? positionals : [
-  "@cf/ibm-granite/granite-4.0-h-micro",
-  "@cf/qwen/qwen3-30b-a3b-fp8",
-  "@cf/zai-org/glm-4.7-flash",
-  "@cf/google/gemma-4-26b-a4b-it",
-];
+const MODELS = positionals.length ? positionals : ["@cf/ibm-granite/granite-4.0-h-micro", "@cf/google/gemma-4-26b-a4b-it"];
 
 type Args = Record<string, any>;
 interface Task {

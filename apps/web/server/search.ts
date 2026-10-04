@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { EMBEDDING_MODEL, type Env } from "./env";
 import { createTimer } from "./timing";
+import { getVectorsByIds } from "./vectorize";
 
 export const searchRequestSchema = z.object({
   text: z.string().trim().min(1).max(200),
@@ -19,9 +20,6 @@ export interface SearchResponse {
   results: { id: number; score: number }[];
   timings: Record<string, number>;
 }
-
-/** Vectorize getByIds is called in chunks of this size. */
-const GET_BY_IDS_CHUNK = 20;
 
 function cosine(a: ArrayLike<number>, b: ArrayLike<number>): number {
   let dot = 0, na = 0, nb = 0;
@@ -44,9 +42,8 @@ export async function searchMovies(env: Env, req: SearchRequest): Promise<{ body
 
   let results: SearchResponse["results"];
   if (req.ids) {
-    const ids = req.ids.map(String);
-    const chunks = Array.from({ length: Math.ceil(ids.length / GET_BY_IDS_CHUNK) }, (_, i) => ids.slice(i * GET_BY_IDS_CHUNK, (i + 1) * GET_BY_IDS_CHUNK));
-    const vectors = await timer.step("vectorize", async () => (await Promise.all(chunks.map((c) => env.VECTORIZE_MOVIES.getByIds(c)))).flat());
+    const ids = req.ids;
+    const vectors = await timer.step("vectorize", () => getVectorsByIds(env.VECTORIZE_MOVIES, ids));
     results = vectors
       .map((v) => ({ id: Number(v.id), score: cosine(vector!, v.values as ArrayLike<number>) }))
       .sort((a, b) => b.score - a.score)

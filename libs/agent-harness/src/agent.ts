@@ -1,5 +1,5 @@
 /**
- * Agent harness contracts (Levels 2 and 3). The loop is implemented in loop.ts.
+ * Agent harness contracts (Level 3, the agent loop). The loop is implemented in loop.ts.
  *
  * Loop contract for Agent.run:
  * 1. Send the transcript and tool specs to the LLMProvider.
@@ -114,10 +114,4 @@ export interface AgentResult {
 
 export interface Agent {
   run(input: string, options?: { signal?: AbortSignal }): Promise<AgentResult>;
-}
-
-/** Level 2: fixed steps in code. The LLM, if used at all, does one narrow subtask. */
-export interface Workflow<Input, Output> {
-  name: string;
-  run(input: Input, context: { provider?: LLMProvider; signal?: AbortSignal }): Promise<Output>;
 }
