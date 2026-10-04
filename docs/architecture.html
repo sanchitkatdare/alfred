@@ -210,6 +210,14 @@ td.num { font-family: var(--f-mono); font-size: 12.5px; font-variant-numeric: ta
   .axis .lab { display: none; }
 }
 
+/* Model selection */
+.bar-cell { display: grid; grid-template-columns: 1fr 52px; gap: 8px; align-items: center; min-width: 140px; }
+.bar-track { height: 8px; background: var(--sunken); border-radius: 4px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 4px; }
+.bar-fill.ok { background: var(--local); } .bar-fill.cost { background: var(--llm); } .bar-fill.time { background: var(--semantic); }
+tr.chosen td { background: var(--local-bg); }
+.pills { display: flex; flex-wrap: wrap; gap: 6px; }
+
 pre.tree { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin: 0; overflow-x: auto; font: 400 13px/1.6 var(--f-mono); }
 pre.tree .c { color: var(--muted); }
 
@@ -235,7 +243,7 @@ footer { font-size: 13px; color: var(--muted); }
   </div>
   <div class="decisions" aria-label="Decisions so far">
     <div class="decision"><span class="k">Hosting</span><span class="v">Cloudflare Pages + Functions, free plan</span><span class="was">Replaces Fly.io static server</span></div>
-    <div class="decision"><span class="k">LLM</span><span class="v">Workers AI, only for assistant tasks</span><span class="was">Replaces WebLLM in the browser</span></div>
+    <div class="decision"><span class="k">LLM</span><span class="v">Workers AI granite-4.0-h-micro, only for assistant tasks</span><span class="was">Replaces WebLLM in the browser</span></div>
     <div class="decision"><span class="k">Routing</span><span class="v">Rules first, embeddings second, LLM last</span><span class="was">Decision trace shown in the UI</span></div>
     <div class="decision"><span class="k">Catalog</span><span class="v">≤ 10k movies. Metadata in browser, vectors in Vectorize</span><span class="was">Replaces Orama and Dexie</span></div>
     <div class="decision"><span class="k">User data</span><span class="v">localStorage, per browser, no accounts</span><span class="was">New browser starts empty</span></div>
@@ -354,11 +362,62 @@ footer { font-size: 13px; color: var(--muted); }
         <tr><td>Semantic search</td><td>Embedding model (bge-small-en-v1.5)</td><td>Workers AI + Vectorize</td><td>Submit with descriptive words</td><td class="num"><span class="tag semantic">1 embedding</span></td></tr>
         <tr><td>Intent check</td><td>Same embedding, compared with example phrases</td><td>Worker</td><td>Submit, rules unsure</td><td class="num"><span class="tag semantic">0 extra</span></td></tr>
         <tr><td>Pantry workflows</td><td>Optional LLM summary</td><td>Workers AI</td><td>Task matches a workflow</td><td class="num"><span class="tag llm">0-1 LLM</span></td></tr>
-        <tr><td>Assistant</td><td>LLM: granite-4.0-h-micro (leading candidate, 8 neurons per task)</td><td>Workers AI via AI Gateway</td><td>Task words or low confidence</td><td class="num"><span class="tag llm">2-5 LLM</span></td></tr>
+        <tr><td>Assistant</td><td>LLM: granite-4.0-h-micro, with parser hints (8 neurons per task)</td><td>Workers AI via AI Gateway</td><td>Task words or low confidence</td><td class="num"><span class="tag llm">2-5 LLM</span></td></tr>
         <tr><td>Catalog seeding</td><td>Embedding model</td><td>Workers AI</td><td>Once per catalog build</td><td class="num">10k embeddings</td></tr>
       </tbody>
     </table>
   </div>
+</section>
+
+<section aria-labelledby="h-models">
+  <div class="sec-head">
+    <div class="eyebrow">Decision record · 4 Oct 2026</div>
+    <h2 id="h-models">Model selection</h2>
+    <p>The assistant LLM was chosen by measurement, not by reputation. Four Workers AI models with function calling ran the same 21 tasks through the real agent loop, tools and catalog (500 TMDB movies). Each task passes only if the right tool was called with the right arguments and the answer contains the expected movie.</p>
+  </div>
+
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Model</th><th>Parser hints</th><th>Pass rate</th><th>Avg time</th><th>p90 time</th><th>Neurons per task</th><th>Tasks per day (free)</th><th>Sample</th></tr></thead>
+      <tbody>
+        <tr class="chosen"><td>granite-4.0-h-micro <span class="tag local">chosen</span></td><td>Parser hints</td><td><div class="bar-cell"><div class="bar-track"><div class="bar-fill ok" style="width:93%"></div></div><span class="num">93%</span></div></td><td><div class="bar-cell"><div class="bar-track"><div class="bar-fill time" style="width:48%"></div></div><span class="num">5.8 s</span></div></td><td class="num">8.3 s</td><td><div class="bar-cell"><div class="bar-track"><div class="bar-fill cost" style="width:22%"></div></div><span class="num">8.1</span></div></td><td class="num">≈ 1,234</td><td class="num">2 runs</td></tr>
+        <tr><td>gemma-4-26b-a4b-it</td><td>Parser hints</td><td><div class="bar-cell"><div class="bar-track"><div class="bar-fill ok" style="width:100%"></div></div><span class="num">100%</span></div></td><td><div class="bar-cell"><div class="bar-track"><div class="bar-fill time" style="width:84%"></div></div><span class="num">10.2 s</span></div></td><td class="num">18.9 s</td><td><div class="bar-cell"><div class="bar-track"><div class="bar-fill cost" style="width:77%"></div></div><span class="num">28.4</span></div></td><td class="num">≈ 352</td><td class="num">1 run</td></tr>
+        <tr><td>gemma-4-26b-a4b-it</td><td>None</td><td><div class="bar-cell"><div class="bar-track"><div class="bar-fill ok" style="width:95%"></div></div><span class="num">95%</span></div></td><td><div class="bar-cell"><div class="bar-track"><div class="bar-fill time" style="width:72%"></div></div><span class="num">8.7 s</span></div></td><td class="num">14.5 s</td><td><div class="bar-cell"><div class="bar-track"><div class="bar-fill cost" style="width:79%"></div></div><span class="num">29.1</span></div></td><td class="num">≈ 343</td><td class="num">2 runs</td></tr>
+        <tr><td>glm-4.7-flash</td><td>None</td><td><div class="bar-cell"><div class="bar-track"><div class="bar-fill ok" style="width:95%"></div></div><span class="num">95%</span></div></td><td><div class="bar-cell"><div class="bar-track"><div class="bar-fill time" style="width:100%"></div></div><span class="num">12.1 s</span></div></td><td class="num">24.4 s</td><td><div class="bar-cell"><div class="bar-track"><div class="bar-fill cost" style="width:92%"></div></div><span class="num">33.6</span></div></td><td class="num">≈ 297</td><td class="num">2 runs</td></tr>
+        <tr><td>qwen3-30b-a3b-fp8</td><td>None</td><td><div class="bar-cell"><div class="bar-track"><div class="bar-fill ok" style="width:83%"></div></div><span class="num">83%</span></div></td><td><div class="bar-cell"><div class="bar-track"><div class="bar-fill time" style="width:44%"></div></div><span class="num">5.3 s</span></div></td><td class="num">7.4 s</td><td><div class="bar-cell"><div class="bar-track"><div class="bar-fill cost" style="width:100%"></div></div><span class="num">36.7</span></div></td><td class="num">≈ 272</td><td class="num">2 runs</td></tr>
+        <tr><td>granite-4.0-h-micro</td><td>None</td><td><div class="bar-cell"><div class="bar-track"><div class="bar-fill ok" style="width:81%"></div></div><span class="num">81%</span></div></td><td><div class="bar-cell"><div class="bar-track"><div class="bar-fill time" style="width:45%"></div></div><span class="num">5.5 s</span></div></td><td class="num">7.3 s</td><td><div class="bar-cell"><div class="bar-track"><div class="bar-fill cost" style="width:22%"></div></div><span class="num">8.2</span></div></td><td class="num">≈ 1,219</td><td class="num">2 runs</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">21 tasks per run. "Tasks per day" assumes all 10,000 free daily neurons go to the assistant. Measured from local dev with remote bindings, without AI Gateway. Differences of 1-2 tasks are within run-to-run noise.</p>
+
+  <h3>What the tasks cover</h3>
+  <div class="pills">
+    <span class="tag local">Filters: genre, runtime, year, rating</span>
+    <span class="tag local">People: pairs, director + genre, exclusions</span>
+    <span class="tag semantic">Scene recall: Memento, Titanic, The Matrix, Finding Nemo</span>
+    <span class="tag semantic">Story questions from stored overviews</span>
+    <span class="tag llm">Watched list: mark, read, exclude</span>
+    <span class="tag llm">Honesty: unknown actor must not be invented</span>
+  </div>
+
+  <h3>How each model failed</h3>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Model</th><th>Failure pattern</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>granite-4.0-h-micro</td><td>Put genres and negations in free text ("no horror") instead of filters</td><td>Parser hints: the rule parser's chips become hard filters. Raised the pass rate from 81% to 93%.</td></tr>
+        <tr><td>granite-4.0-h-micro</td><td>Sometimes answers without calling a tool</td><td>Open: force a tool call on the first turn, or retry once</td></tr>
+        <tr><td>qwen3-30b-a3b-fp8</td><td>Answers from memory, skipping tools</td><td>None found. Not chosen.</td></tr>
+        <tr><td>glm-4.7-flash, gemma-4-26b-a4b-it</td><td>Accurate, but slow outliers of 25-44 s</td><td>Not fixable on our side</td></tr>
+        <tr><td>All models</td><td>Malformed tool arguments made Workers AI reject the conversation</td><td>Harness bug, fixed: malformed arguments are sent back as <code>{}</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Decision and trade-off</h3>
+  <p><b>granite-4.0-h-micro with parser hints.</b> It gives up a few points of accuracy against gemma (93% versus 100%) in exchange for about 3.5 times more assistant tasks per day within the free quota, and answers that are about twice as fast, with a p90 of 8.3 s instead of 18.9 s. That matches the project's goals of zero cost and instant answers. The rule parser covers granite's main weakness. gemma-4-26b-a4b-it is the quality fallback; switching is one line.</p>
+  <p class="note">Re-run <code>pnpm compare-models</code> when tools or prompts change, a new task type is added, a model is deprecated, or prices change.</p>
 </section>
 
 <section aria-labelledby="h-data">
@@ -433,7 +492,7 @@ footer { font-size: 13px; color: var(--muted); }
   </div>
   <ul class="todo">
     <li><span class="st next">Next</span><span>Latency and quota spike: one Pages Function, 100 seed items. Log time per step and neurons per assistant request.</span></li>
-    <li><span class="st open">Open</span><span>Choose the LLM: test 2-3 Workers AI models on the real tool schemas.</span></li>
+    <li><span class="st open">Done</span><span>LLM chosen: granite-4.0-h-micro with parser hints. See Model selection.</span></li>
     <li><span class="st open">Open</span><span>Catalog source and license. TMDB requires attribution. IMDb datasets are non-commercial only.</span></li>
     <li><span class="st open">Open</span><span>Verify Vectorize free limits and whether metadata filters work on array fields.</span></li>
     <li><span class="st open">Open</span><span>Define pantry dictionaries (ingredients, diets, cuisines) and its workflows.</span></li>

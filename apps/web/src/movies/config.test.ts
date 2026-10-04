@@ -53,6 +53,14 @@ describe("with, without, has, does not have", () => {
   });
 });
 
+describe("surname-only matching", () => {
+  it("does not match a surname that is a title word", () => {
+    const catalog = [...SAMPLE_CATALOG, { ...SAMPLE_CATALOG[0]!, id: 999, title: "Toy Story", cast: ["Tim Story"], directors: [] }, { ...SAMPLE_CATALOG[0]!, id: 998, title: "Other", cast: ["Tim Story"], directors: [] }];
+    const strict = buildMovieParserConfig(catalog);
+    expect(parse("a story about pacino", strict).chips.map((c) => c.id)).toEqual(["Al Pacino"]);
+  });
+});
+
 describe("years and titles", () => {
   it.each([
     ["a 90s crime movie with pacino", ["year:1990s", "genre:Crime", "actor:Al Pacino"]],

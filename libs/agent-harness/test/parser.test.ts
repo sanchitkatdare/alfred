@@ -61,6 +61,12 @@ describe("dictionary matching", () => {
     expect(chipsOf("emma stone comedy")).toEqual(["actor:Emma Stone", "genre:comedy"]);
   });
 
+  it("skips surname-only matching for people below the minimum count", () => {
+    const strict = buildDictionary({ people: [{ kind: "actor", name: "Tim Story", count: 1 }, { kind: "actor", name: "Al Pacino", count: 5 }], minSurnameCount: 2 });
+    expect(parse("a story about pacino", { dictionary: strict }).chips.map((c) => c.id)).toEqual(["Al Pacino"]);
+    expect(parse("tim story", { dictionary: strict }).chips.map((c) => c.id)).toEqual(["Tim Story"]);
+  });
+
   it("tolerates typos", () => {
     const chip = parse("jenifer lawrance", config).chips[0]!;
     expect(chip.id).toBe("Jennifer Lawrence");

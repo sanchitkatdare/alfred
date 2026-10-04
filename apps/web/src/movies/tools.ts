@@ -2,6 +2,7 @@ import { createToolRegistry, defineTool, toKey, type Tool, type ToolSpec } from 
 import { z } from "zod";
 import type { Movie } from "./catalog";
 import { GENRE_IDS } from "./config";
+import { mergeSearchHints, type SearchHints } from "./hints";
 
 export interface MovieStory {
   id: number;
@@ -19,6 +20,8 @@ export interface MovieToolContext {
   search(text: string, ids?: number[]): Promise<{ id: number; score: number }[]>;
   /** Overview, tagline and keywords from the server. */
   details(ids: number[]): Promise<MovieStory[]>;
+  /** Filters the rule parser took from the user's message. Applied to every search except title lookups. */
+  getHints?(): SearchHints;
 }
 
 /** Above this many filtered movies, semantic search queries the whole index instead of ranking candidates. */
@@ -42,7 +45,7 @@ const searchSchema = z.object({
   limit: z.number().int().min(1).max(10).optional().describe("Default 5."),
 });
 
-type SearchArgs = z.infer<typeof searchSchema>;
+export type SearchArgs = z.infer<typeof searchSchema>;
 
 const personMatches = (movie: Movie, name: string) => {
   const k = toKey(name);
@@ -78,7 +81,8 @@ export function createMovieTools(ctx: MovieToolContext): Tool<any, any>[] {
     name: "search_movies",
     description: "Find movies in the catalog by filters and an optional free-text description. Returns at most `limit` movies, best first.",
     schema: searchSchema,
-    async run(a) {
+    async run(modelArgs) {
+      const a = modelArgs.title ? modelArgs : mergeSearchHints(modelArgs, ctx.getHints?.() ?? {});
       const filtered = filterCatalog(ctx.catalog, a, ctx.getWatched());
       const limit = a.limit ?? 5;
       let ordered: Movie[];

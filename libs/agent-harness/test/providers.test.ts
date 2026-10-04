@@ -15,6 +15,11 @@ describe("OpenAI format adapter", () => {
     ]);
   });
 
+  it("replaces malformed arguments with {} when sending the transcript back", () => {
+    const [m] = toOpenAIMessages([{ role: "assistant", content: "", toolCalls: [{ id: "c1", name: "f", arguments: '{"a": 1 "b": 2}' }] }]);
+    expect(m!.tool_calls![0]!.function.arguments).toBe("{}");
+  });
+
   it("wraps tool specs", () => {
     expect(toOpenAITools([{ name: "a", description: "d", parameters: { type: "object" } }])).toEqual([
       { type: "function", function: { name: "a", description: "d", parameters: { type: "object" } } },

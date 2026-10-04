@@ -43,6 +43,8 @@ export interface DictionaryOptions {
   surnameDominance?: number;
   /** Minimum item count for a first-name suggestion. */
   minFirstNameCount?: number;
+  /** Minimum item count for a surname to match alone. Rare people match only by full name. */
+  minSurnameCount?: number;
 }
 
 const PARTICLES = new Set(["de", "del", "da", "di", "van", "von", "le"]);
@@ -62,6 +64,7 @@ export function buildDictionary(options: DictionaryOptions): Dictionary {
   const common = new Set(options.commonWords ?? []);
   const dominance = options.surnameDominance ?? 3;
   const minFirst = options.minFirstNameCount ?? 2;
+  const minSurname = options.minSurnameCount ?? 1;
 
   for (const t of options.terms ?? []) {
     entries.set(toKey(t.label), { kind: t.kind, id: t.id, label: t.label, via: "name" });
@@ -90,6 +93,7 @@ export function buildDictionary(options: DictionaryOptions): Dictionary {
     }
     if (entries.has(sk)) continue;
     const [top, next] = group as [PersonSpec, PersonSpec | undefined];
+    if (top.count < minSurname) continue;
     const clear = !next || top.count >= dominance * next.count;
     entries.set(sk, {
       kind: top.kind,

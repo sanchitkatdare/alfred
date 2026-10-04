@@ -81,3 +81,18 @@ describe("other tools", () => {
     expect(JSON.stringify(specs[0]!.parameters)).toContain('"sci-fi"');
   });
 });
+
+describe("search_movies with parser hints", () => {
+  it("applies hints to filter searches but not to title lookups", async () => {
+    const tools = Object.fromEntries(createMovieTools({
+      catalog: SAMPLE_CATALOG, getWatched: () => new Set(), markWatched: () => {},
+      search: async () => [], details: async () => [],
+      getHints: () => ({ excludeGenres: ["sci-fi"] }),
+    }).map((t) => [t.name, t]));
+    const run = (args: unknown) => tools.search_movies!.run(tools.search_movies!.schema.parse(args), { callId: "t" });
+    const filtered = await run({ people: ["Nolan"], limit: 10 });
+    expect(filtered.movies.map((m: { title: string }) => m.title)).toEqual(["The Dark Knight"]);
+    const byTitle = await run({ title: "inception" });
+    expect(byTitle.movies.map((m: { title: string }) => m.title)).toEqual(["Inception"]);
+  });
+});

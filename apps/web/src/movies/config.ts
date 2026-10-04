@@ -200,6 +200,10 @@ function similarRule(titles: Map<string, Movie>): Rule {
   };
 }
 
+function titleWords(catalog: Movie[]): string[] {
+  return [...new Set(catalog.flatMap((m) => [m.title, m.originalTitle ?? ""].join(" ").split(/[^\p{L}\p{N}]+/u).map(toKey).filter((w) => w.length > 2)))];
+}
+
 export function buildMovieParserConfig(catalog: Movie[]): ParserConfig {
   const counts = new Map<string, PersonSpec>();
   const titles = new Map<string, Movie>();
@@ -221,7 +225,9 @@ export function buildMovieParserConfig(catalog: Movie[]): ParserConfig {
     dictionary: buildDictionary({
       terms: GENRES.map((g) => ({ kind: "genre", ...g })),
       people: [...counts.values()],
-      commonWords: COMMON_WORDS,
+      // A surname alone does not match when it is a common word or appears in any title ("story", "potter", "knight").
+      commonWords: [...COMMON_WORDS, ...titleWords(catalog)],
+      minSurnameCount: 2,
     }),
     rules: [ratingRule, comparisonRule, yearRule, similarRule(titles)],
     phrases: PHRASES,

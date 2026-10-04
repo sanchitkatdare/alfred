@@ -17,6 +17,20 @@ export interface OpenAITool {
   function: { name: string; description: string; parameters: Record<string, unknown> };
 }
 
+/**
+ * Arguments as a JSON string. Malformed model output is replaced with "{}": providers reject a
+ * transcript containing invalid JSON, and the tool message already carries the validation error.
+ */
+function argumentsJson(args: unknown): string {
+  if (typeof args !== "string") return JSON.stringify(args ?? {});
+  try {
+    JSON.parse(args);
+    return args;
+  } catch {
+    return "{}";
+  }
+}
+
 export function toOpenAIMessages(messages: ChatMessage[]): OpenAIMessage[] {
   return messages.map((m) => {
     if (m.role === "tool") return { role: "tool", content: m.content, tool_call_id: m.toolCallId };
@@ -27,7 +41,7 @@ export function toOpenAIMessages(messages: ChatMessage[]): OpenAIMessage[] {
         tool_calls: m.toolCalls.map((c) => ({
           id: c.id,
           type: "function" as const,
-          function: { name: c.name, arguments: typeof c.arguments === "string" ? c.arguments : JSON.stringify(c.arguments) },
+          function: { name: c.name, arguments: argumentsJson(c.arguments) },
         })),
       };
     }

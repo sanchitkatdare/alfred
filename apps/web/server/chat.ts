@@ -4,8 +4,8 @@ import { movieToolSpecs } from "../src/movies/tools";
 import type { Env } from "./env";
 import { createTimer } from "./timing";
 
-/** Chosen after the step 2b comparison. The client cannot change it. */
-export const MOVIE_CHAT_MODEL = "@cf/qwen/qwen3-30b-a3b-fp8";
+/** Chosen by the model comparison (docs/architecture.html, Model selection). Needs parser hints. The client cannot change it. */
+export const MOVIE_CHAT_MODEL = "@cf/ibm-granite/granite-4.0-h-micro";
 export const MAX_OUTPUT_TOKENS = 700;
 export const AI_GATEWAY_ID = "alfred";
 
