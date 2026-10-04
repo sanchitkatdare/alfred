@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Embedding benchmark</title>
+<style>body { font: 14px/1.5 ui-monospace, Menlo, monospace; margin: 16px; } pre { white-space: pre-wrap; }</style>
+</head>
+<body>
+<!--
+  Measures the cost of running the search embedding model (bge-small-en-v1.5, 8-bit) in the browser.
+  Open directly on any device, or run bench/run-embedding-bench.ts for throttled, repeatable numbers.
+  Results appear on the page and in window.__bench.
+-->
+<pre id="log">Loading Transformers.js…</pre>
+<script type="module">
+const log = (m) => (document.getElementById("log").textContent += `\n${m}`);
+const QUERIES = [
+  "mind-bending dream heist", "a boy who befriends a robot", "space survival alone", "feel-good family adventure",
+  "guy tattoos clues on his body", "time loop where the same day repeats", "mobster movie with a nonlinear story",
+  "clownfish father searches the ocean", "ship hits an iceberg", "hacker learns reality is a simulation",
+  "dinosaurs escape on an island theme park", "a heist gone wrong", "courtroom drama about injustice",
+  "superhero team saves the world", "romantic comedy in new york", "haunted house horror",
+  "war movie on a beach landing", "detective hunts a serial killer", "musician chasing a dream", "road trip with friends",
+];
+try {
+  const t0 = performance.now();
+  const { pipeline } = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0");
+  const tImported = performance.now();
+  log(`Library loaded in ${Math.round(tImported - t0)} ms. Loading model…`);
+  const extractor = await pipeline("feature-extraction", "Xenova/bge-small-en-v1.5", { dtype: "q8", device: "wasm" });
+  const tReady = performance.now();
+  log(`Model ready in ${Math.round(tReady - tImported)} ms.`);
+
+  const embed = async (text, pooling = "mean") => (await extractor(text, { pooling, normalize: true })).tolist();
+  let s = performance.now();
+  await embed(QUERIES[0]);
+  const firstQueryMs = performance.now() - s;
+  const times = [];
+  for (const q of QUERIES) {
+    s = performance.now();
+    await embed(q);
+    times.push(performance.now() - s);
+  }
+  times.sort((a, b) => a - b);
+  window.__bench = {
+    libraryMs: Math.round(tImported - t0),
+    modelMs: Math.round(tReady - tImported),
+    readyMs: Math.round(tReady - t0),
+    firstQueryMs: Math.round(firstQueryMs),
+    medianQueryMs: Math.round(times[Math.floor(times.length / 2)]),
+    p90QueryMs: Math.round(times[Math.floor(times.length * 0.9)]),
+  };
+  window.__embed = embed;
+  log(`Ready after ${window.__bench.readyMs} ms. First query ${window.__bench.firstQueryMs} ms, median ${window.__bench.medianQueryMs} ms, p90 ${window.__bench.p90QueryMs} ms.`);
+} catch (e) {
+  window.__benchError = String(e?.stack ?? e);
+  log(`ERROR: ${window.__benchError}`);
+}
+</script>
+</body>
+</html>

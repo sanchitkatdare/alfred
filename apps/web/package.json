@@ -11,7 +11,8 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p functions/tsconfig.json && tsc -p scripts/tsconfig.json",
     "dev:api": "pnpm build && wrangler pages dev",
     "seed": "node --env-file-if-exists=../../.env scripts/seed.ts",
-    "compare-models": "tsx scripts/compare-models.ts"
+    "compare-models": "tsx scripts/compare-models.ts",
+    "bench:embedding": "tsx bench/run-embedding-bench.ts"
   },
   "dependencies": {
     "@alfred/agent-harness": "workspace:*",
@@ -25,6 +26,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "playwright-core": "^1.63.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.2",
