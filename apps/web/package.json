@@ -1,0 +1,34 @@
+{
+  "name": "@alfred/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json && tsc -p functions/tsconfig.json && tsc -p scripts/tsconfig.json",
+    "dev:api": "pnpm build && wrangler pages dev",
+    "seed": "node --env-file-if-exists=../../.env scripts/seed.ts",
+    "compare-models": "tsx scripts/compare-models.ts"
+  },
+  "dependencies": {
+    "@alfred/agent-harness": "workspace:*",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261003.1",
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3",
+    "wrangler": "^4.147.0"
+  }
+}

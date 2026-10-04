@@ -1,0 +1,6 @@
+packages:
+  - libs/*
+  - apps/*
+allowBuilds:
+  esbuild: true
+  workerd: true

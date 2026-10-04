@@ -1,0 +1,957 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Alfred Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one reading column (max 1080px). Route color encodes the AI cost of a request: green = rules only, blue = embedding, amber = LLM. */
+:root {
+  --bg: #F3F4F7;
+  --surface: #FFFFFF;
+  --sunken: #E9ECF1;
+  --fg: #161B25;
+  --muted: #586172;
+  --line: #D6DBE3;
+  --local: #1D7550;
+  --local-bg: #DFF1E7;
+  --semantic: #23609F;
+  --semantic-bg: #DFEAF7;
+  --llm: #9A5A0C;
+  --llm-bg: #FAEBD5;
+  --neg: #AE3236;
+  --neg-bg: #FAE3E3;
+  --hl: #FFE58A;
+  --f-display: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11151C; --surface: #181D26; --sunken: #212734; --fg: #E5E8EE; --muted: #98A1B1; --line: #2C3442;
+    --local: #55C690; --local-bg: #173A2A; --semantic: #73AEEA; --semantic-bg: #182F48;
+    --llm: #E6AE52; --llm-bg: #3D2C12; --neg: #EE7C7C; --neg-bg: #43201F; --hl: #6B5A12;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11151C; --surface: #181D26; --sunken: #212734; --fg: #E5E8EE; --muted: #98A1B1; --line: #2C3442;
+  --local: #55C690; --local-bg: #173A2A; --semantic: #73AEEA; --semantic-bg: #182F48;
+  --llm: #E6AE52; --llm-bg: #3D2C12; --neg: #EE7C7C; --neg-bg: #43201F; --hl: #6B5A12;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 400 15px/1.6 var(--f-body); }
+.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 20px; padding-block: 40px 96px; display: grid; gap: 64px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(2rem, 5vw, 2.9rem); font-weight: 700; line-height: 1.1; }
+h2 { font-size: 1.55rem; font-weight: 700; line-height: 1.2; }
+h3 { font-size: 1.05rem; font-weight: 500; }
+p { margin: 0; max-width: 68ch; }
+code, .mono { font-family: var(--f-mono); font-size: 0.88em; }
+.eyebrow { font-family: var(--f-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.muted { color: var(--muted); }
+section { display: grid; gap: 20px; min-width: 0; }
+.sec-head { display: grid; gap: 8px; }
+:focus-visible { outline: 2px solid var(--semantic); outline-offset: 2px; }
+button { font: inherit; color: inherit; cursor: pointer; }
+
+/* Header */
+header { display: grid; gap: 16px; }
+.verdict { border-left: 3px solid var(--fg); padding: 4px 0 4px 18px; display: grid; gap: 8px; }
+.decisions { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.decision { background: var(--surface); padding: 14px 16px; display: grid; gap: 4px; align-content: start; }
+.decision .k { font-family: var(--f-mono); font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.decision .v { font-weight: 600; }
+.decision .was { font-size: 13px; color: var(--muted); }
+
+/* Route legend */
+.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.dot.local { background: var(--local); } .dot.semantic { background: var(--semantic); } .dot.llm { background: var(--llm); }
+
+/* Simulator */
+.sim { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; display: grid; gap: 16px; min-width: 0; }
+.understood { display: grid; gap: 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; min-height: 34px; align-items: center; }
+.chips .placeholder { color: var(--muted); font-size: 13.5px; }
+.chip { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); background: var(--sunken); border-radius: 999px; padding: 4px 6px 4px 11px; font-size: 13.5px; line-height: 1.3; }
+.chip .kind { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.chip .x { border: 0; background: transparent; width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; color: var(--muted); font-size: 15px; line-height: 1; }
+.chip .x:hover { background: var(--line); color: var(--fg); }
+.chip.neg { background: var(--neg-bg); border-color: transparent; }
+.chip.neg .kind, .chip.neg .val { color: var(--neg); }
+.chip.task { background: var(--llm-bg); border-color: transparent; }
+.chip.task .kind, .chip.task .val { color: var(--llm); }
+.chip.free { background: transparent; border-style: dashed; padding-right: 11px; }
+.chip.suggest { background: transparent; border-style: dashed; padding-right: 11px; }
+.chip.suggest:hover { border-color: var(--fg); }
+.chip .flag { font-family: var(--f-mono); font-size: 11px; color: var(--muted); }
+.chip.new { animation: chipIn 900ms ease-out; }
+@keyframes chipIn { from { box-shadow: 0 0 0 4px var(--hl); background: var(--hl); } }
+@media (prefers-reduced-motion: reduce) { .chip.new { animation: none; } }
+
+.qbox { display: grid; gap: 10px; }
+.qbox label { font-weight: 600; font-size: 14px; }
+#q { width: 100%; font: 400 1.05rem/1.4 var(--f-body); padding: 13px 14px; border: 1.5px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); }
+#q:focus { outline: none; border-color: var(--semantic); }
+.examples { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.examples .eyebrow { margin-right: 4px; }
+.ex { border: 1px solid var(--line); background: transparent; border-radius: 6px; padding: 3px 9px; font-size: 13px; color: var(--muted); }
+.ex:hover { color: var(--fg); border-color: var(--muted); }
+
+.sim-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; }
+@media (max-width: 760px) { .sim-grid { grid-template-columns: minmax(0, 1fr); } }
+.panel { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.route { border-radius: 10px; padding: 14px 16px; display: grid; gap: 8px; background: var(--sunken); }
+.route.local { background: var(--local-bg); } .route.semantic { background: var(--semantic-bg); } .route.assistant { background: var(--llm-bg); }
+.route .name { font-family: var(--f-display); font-weight: 700; font-size: 1.2rem; }
+.route.local .name { color: var(--local); } .route.semantic .name { color: var(--semantic); } .route.assistant .name { color: var(--llm); }
+.route .stats { display: flex; flex-wrap: wrap; gap: 6px 16px; font-family: var(--f-mono); font-size: 12.5px; }
+.route .stats b { font-weight: 500; }
+.route ol { margin: 0; padding-left: 20px; font-size: 13.5px; display: grid; gap: 2px; }
+.trace { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.trace li { font-family: var(--f-mono); font-size: 12px; color: var(--muted); padding-left: 14px; position: relative; overflow-wrap: anywhere; }
+.trace li::before { content: "›"; position: absolute; left: 0; }
+.trace li b { color: var(--fg); font-weight: 500; }
+
+.results { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.results li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 0; border-bottom: 1px solid var(--line); align-items: center; }
+.results .t { font-weight: 600; }
+.results .m { font-family: var(--f-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.results .w { border: 1px solid var(--line); background: transparent; border-radius: 6px; font-size: 12.5px; padding: 3px 9px; grid-row: span 2; }
+.results .w:hover { border-color: var(--muted); }
+.results .empty { display: block; color: var(--muted); font-size: 13.5px; }
+.note { font-size: 13px; color: var(--muted); }
+.linkish { border: 0; background: none; padding: 0; color: var(--semantic); text-decoration: underline; font-size: 13px; }
+
+/* Levels */
+.levels { display: grid; gap: 10px; }
+.level { display: grid; grid-template-columns: 120px minmax(0, 1fr) 150px; gap: 16px; align-items: start; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+.level .lv { font-family: var(--f-mono); font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
+.level .lv b { font-family: var(--f-display); font-size: 1.15rem; color: var(--fg); font-weight: 700; }
+.level .body { display: grid; gap: 6px; min-width: 0; }
+.level .cost { font-family: var(--f-mono); font-size: 12.5px; display: grid; gap: 4px; justify-items: start; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-family: var(--f-mono); font-size: 12px; }
+.tag.local { background: var(--local-bg); color: var(--local); }
+.tag.semantic { background: var(--semantic-bg); color: var(--semantic); }
+.tag.llm { background: var(--llm-bg); color: var(--llm); }
+.escalate { font-family: var(--f-mono); font-size: 12px; color: var(--muted); padding-left: 136px; }
+@media (max-width: 760px) {
+  .level { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .escalate { padding-left: 16px; }
+}
+
+/* Build pipeline */
+.pipe { display: grid; grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr) 28px minmax(0, 1.2fr); align-items: center; gap: 8px; }
+.pipe .node { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: grid; gap: 4px; font-size: 13.5px; }
+.pipe .node b { font-weight: 600; }
+.pipe .arrow { text-align: center; color: var(--muted); font-size: 18px; }
+.pipe .outs { display: grid; gap: 8px; }
+@media (max-width: 760px) {
+  .pipe { grid-template-columns: minmax(0, 1fr); }
+  .pipe .arrow { transform: rotate(90deg); }
+}
+
+/* Sequence diagram */
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.tab { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 6px 12px; font-size: 13.5px; }
+.tab[aria-selected="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.seq { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; }
+.seq-inner { min-width: 600px; }
+.seq-total { padding: 12px 16px; border-bottom: 1px solid var(--line); font-family: var(--f-mono); font-size: 12.5px; display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.lanes, .step { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.lanes { border-bottom: 1px solid var(--line); }
+.lanes div { text-align: center; padding: 10px 6px; font-weight: 600; font-size: 13.5px; display: grid; }
+.lanes div span { font-weight: 400; font-size: 12px; color: var(--muted); }
+.steps { padding-block: 10px 16px;
+  background-image: linear-gradient(var(--line), var(--line)), linear-gradient(var(--line), var(--line)), linear-gradient(var(--line), var(--line));
+  background-size: 1px 100%; background-repeat: no-repeat; background-position: 16.667% 0, 50% 0, 83.333% 0; }
+.step { padding-block: 7px; }
+.msg { display: grid; gap: 3px; }
+.msg .lbl, .msg .line { margin-inline: calc(100% / (var(--k) * 2)); }
+.msg .lbl { text-align: center; font-size: 13px; line-height: 1.35; padding-inline: 6px; }
+.msg .line { border-top: 1.5px solid var(--fg); position: relative; }
+.msg .line::after { content: ""; position: absolute; right: -1px; top: -5.5px; border-left: 9px solid var(--fg); border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+.msg.rtl .line::after { right: auto; left: -1px; border-left: 0; border-right: 9px solid var(--fg); }
+.self .box { margin-inline: 10px; background: var(--sunken); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font-size: 13px; line-height: 1.35; }
+.n { font-family: var(--f-mono); font-size: 11px; color: var(--muted); margin-right: 4px; }
+.meta { display: block; font-family: var(--f-mono); font-size: 11.5px; color: var(--muted); }
+
+/* Tables */
+.tbl { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 13.5px; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--f-mono); font-size: 11.5px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); font-weight: 500; background: var(--sunken); }
+tr:last-child td { border-bottom: 0; }
+td.num { font-family: var(--f-mono); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Latency chart */
+.chart { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 16px; display: grid; gap: 10px; }
+.lat { display: grid; grid-template-columns: 200px minmax(0, 1fr) 90px; gap: 12px; align-items: center; }
+.lat .lab { font-size: 13.5px; }
+.lat .track { position: relative; height: 22px; }
+.lat .track .grid { position: absolute; inset: 0; }
+.lat .track .grid i { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line); }
+.lat .bar { position: absolute; top: 4px; height: 14px; border-radius: 3px; }
+.lat .bar.local { background: var(--local); } .lat .bar.semantic { background: var(--semantic); } .lat .bar.llm { background: var(--llm); }
+.lat .val { font-family: var(--f-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.axis .track { height: 18px; }
+.axis .tick { position: absolute; transform: translateX(-50%); font-family: var(--f-mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+@media (max-width: 640px) {
+  .lat { grid-template-columns: minmax(0, 1fr) 70px; }
+  .lat .lab { grid-column: 1 / -1; margin-bottom: -6px; }
+  .axis .lab { display: none; }
+}
+
+pre.tree { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin: 0; overflow-x: auto; font: 400 13px/1.6 var(--f-mono); }
+pre.tree .c { color: var(--muted); }
+
+.todo { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.todo li { background: var(--surface); padding: 12px 16px; display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 12px; align-items: baseline; }
+.todo .st { font-family: var(--f-mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; }
+.todo .st.next { color: var(--llm); } .todo .st.open { color: var(--muted); }
+@media (max-width: 520px) { .todo li { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
+footer { font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">Project alfred · design review · 3 Oct 2026</div>
+  <h1>Alfred architecture</h1>
+  <p>A reusable agent harness, shown through a movie recommender and a pantry planner. Rules handle most requests in the browser. Embeddings handle free text. An LLM runs only for multi-step tasks.</p>
+  <div class="verdict">
+    <h3>Current assessment</h3>
+    <p>The design is consistent and much simpler than the first prompt. Hosting costs nothing. Most requests make no LLM call, and the UI shows every routing decision. The open risks are Workers AI tool-calling quality, the daily free quota, and real latency. A one-hour spike can test all three.</p>
+  </div>
+  <div class="decisions" aria-label="Decisions so far">
+    <div class="decision"><span class="k">Hosting</span><span class="v">Cloudflare Pages + Functions, free plan</span><span class="was">Replaces Fly.io static server</span></div>
+    <div class="decision"><span class="k">LLM</span><span class="v">Workers AI, only for assistant tasks</span><span class="was">Replaces WebLLM in the browser</span></div>
+    <div class="decision"><span class="k">Routing</span><span class="v">Rules first, embeddings second, LLM last</span><span class="was">Decision trace shown in the UI</span></div>
+    <div class="decision"><span class="k">Catalog</span><span class="v">≤ 10k movies. Metadata in browser, vectors in Vectorize</span><span class="was">Replaces Orama and Dexie</span></div>
+    <div class="decision"><span class="k">User data</span><span class="v">localStorage, per browser, no accounts</span><span class="was">New browser starts empty</span></div>
+    <div class="decision"><span class="k">People</span><span class="v">Top 3-5 cast and directors, one generic matcher</span><span class="was">Same matcher for genres and ingredients</span></div>
+  </div>
+</header>
+
+<section id="router" aria-labelledby="h-router">
+  <div class="sec-head">
+    <div class="eyebrow">User interaction</div>
+    <h2 id="h-router">Try the router</h2>
+    <p>Type a movie request. The page parses it with rules, as the real app will. The page makes no network or AI calls. It uses 38 sample movies with approximate IMDb ratings.</p>
+    <div class="legend">
+      <span><i class="dot local"></i>Rules only, 0 AI calls</span>
+      <span><i class="dot semantic"></i>1 embedding, 0 LLM calls</span>
+      <span><i class="dot llm"></i>LLM, 2-5 calls</span>
+    </div>
+  </div>
+
+  <div class="sim">
+    <div class="understood">
+      <div class="eyebrow">Understood so far · select a chip to remove it</div>
+      <div class="chips" id="chips" aria-live="polite"></div>
+    </div>
+    <div class="qbox">
+      <label for="q">Ask for a movie</label>
+      <input id="q" type="text" autocomplete="off" spellcheck="false" value="like inception but not sci-fi, under 2 hours">
+      <div class="examples" id="examples"><span class="eyebrow">Examples</span></div>
+    </div>
+    <div class="sim-grid">
+      <div class="panel">
+        <div class="panel-head"><h3>Live preview</h3><span class="note" id="count"></span></div>
+        <ul class="results" id="results"></ul>
+        <p class="note" id="resnote"></p>
+      </div>
+      <div class="panel">
+        <h3>Route decision</h3>
+        <div class="route" id="route"></div>
+        <h3>Parser trace</h3>
+        <ul class="trace" id="trace"></ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="h-levels">
+  <div class="sec-head">
+    <div class="eyebrow">Decision model</div>
+    <h2 id="h-levels">How a request is routed</h2>
+    <p>Our code makes the decisions. A request moves to a higher level only when the lower level cannot handle it.</p>
+  </div>
+  <div class="levels">
+    <div class="level">
+      <div class="lv">Level 1<b>Router</b>Browser</div>
+      <div class="body">
+        <p>Rules match genres, people, runtime, year, rating, negation and task words. Words left over decide the outcome.</p>
+        <p class="muted">No leftover words: filter locally. Descriptive words left over: semantic search. Task words: escalate. On submit, an embedding compares the query with example phrases for each intent. The rules may be unsure. In that case, this check finds the intent.</p>
+      </div>
+      <div class="cost"><span class="tag local">0 AI calls</span><span class="tag semantic">or 1 embedding</span></div>
+    </div>
+    <div class="escalate">↓ task matches a known workflow</div>
+    <div class="level">
+      <div class="lv">Level 2<b>Workflows</b>Browser</div>
+      <div class="body">
+        <p>Fixed steps written in code. Example: meal plan. Read pantry, search recipes, compute missing ingredients as a set difference, write the shopping list.</p>
+        <p class="muted">The LLM writes the summary text only. This step is optional.</p>
+      </div>
+      <div class="cost"><span class="tag llm">0-1 LLM calls</span></div>
+    </div>
+    <div class="escalate">↓ open-ended task, or low confidence</div>
+    <div class="level">
+      <div class="lv">Level 3<b>Agent loop</b>Browser + Workers AI</div>
+      <div class="body">
+        <p>The LLM proposes tool calls. The harness checks that each tool is allowed and validates the arguments. Then it runs the tool. It sends any validation error back to the LLM, and it stops after 5 iterations.</p>
+      </div>
+      <div class="cost"><span class="tag llm">2-5 LLM calls</span></div>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="h-flow">
+  <div class="sec-head">
+    <div class="eyebrow">Data flow</div>
+    <h2 id="h-flow">Build time and runtime</h2>
+    <p>The catalog is prepared once, before deployment. At runtime, the browser does most of the work.</p>
+  </div>
+  <h3>Build time, once per catalog update</h3>
+  <div class="pipe">
+    <div class="node"><b>Catalog source</b><span class="muted">≤ 10k movies: title, year, genres, runtime, rating, top cast, directors, overview</span></div>
+    <div class="arrow" aria-hidden="true">→</div>
+    <div class="node"><b>apps/web/scripts/seed.ts</b><span class="muted">Fetch from TMDB. Embed title, tagline, genres, overview and keywords with Workers AI.</span></div>
+    <div class="arrow" aria-hidden="true">→</div>
+    <div class="outs">
+      <div class="node"><b>catalog-meta.json + dictionaries.json</b><span class="muted">Static files on Pages. About 500 KB gzipped. No overviews, no vectors.</span></div>
+      <div class="node"><b>10k vectors, 384 dimensions</b><span class="muted">Vectorize index. 3.84M stored dimensions.</span></div>
+    </div>
+  </div>
+
+  <h3>Runtime</h3>
+  <div class="tabs" role="tablist" id="tabs"></div>
+  <div class="seq" role="tabpanel" id="seq"></div>
+</section>
+
+<section aria-labelledby="h-ai">
+  <div class="sec-head">
+    <div class="eyebrow">AI usage</div>
+    <h2 id="h-ai">Where AI runs</h2>
+    <p>Only two AI models exist in the system: one embedding model and one LLM. Both run on Workers AI.</p>
+  </div>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Feature</th><th>AI used</th><th>Runs on</th><th>Trigger</th><th>Calls per request</th></tr></thead>
+      <tbody>
+        <tr><td>Chips while typing</td><td>None. Rules.</td><td>Browser</td><td>Every keystroke</td><td class="num"><span class="tag local">0</span></td></tr>
+        <tr><td>Live top-10 preview</td><td>None. Metadata filter.</td><td>Browser</td><td>Typing, 150 ms debounce</td><td class="num"><span class="tag local">0</span></td></tr>
+        <tr><td>Semantic search</td><td>Embedding model (bge-small-en-v1.5)</td><td>Workers AI + Vectorize</td><td>Submit with descriptive words</td><td class="num"><span class="tag semantic">1 embedding</span></td></tr>
+        <tr><td>Intent check</td><td>Same embedding, compared with example phrases</td><td>Worker</td><td>Submit, rules unsure</td><td class="num"><span class="tag semantic">0 extra</span></td></tr>
+        <tr><td>Pantry workflows</td><td>Optional LLM summary</td><td>Workers AI</td><td>Task matches a workflow</td><td class="num"><span class="tag llm">0-1 LLM</span></td></tr>
+        <tr><td>Assistant</td><td>LLM: granite-4.0-h-micro (leading candidate, 8 neurons per task)</td><td>Workers AI via AI Gateway</td><td>Task words or low confidence</td><td class="num"><span class="tag llm">2-5 LLM</span></td></tr>
+        <tr><td>Catalog seeding</td><td>Embedding model</td><td>Workers AI</td><td>Once per catalog build</td><td class="num">10k embeddings</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section aria-labelledby="h-data">
+  <div class="sec-head">
+    <div class="eyebrow">Storage</div>
+    <h2 id="h-data">Where data lives</h2>
+  </div>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Data</th><th>Location</th><th>Size (estimate)</th><th>Lifetime</th></tr></thead>
+      <tbody>
+        <tr><td>App shell (HTML, JS, CSS)</td><td>Pages CDN</td><td class="num">≈ 150 KB gz</td><td>Until next deploy</td></tr>
+        <tr><td>Catalog metadata and dictionaries</td><td>Pages, then browser memory</td><td class="num">≈ 500 KB gz</td><td>HTTP cache</td></tr>
+        <tr><td>Catalog vectors (10k × 384)</td><td>Vectorize</td><td class="num">3.84M dims</td><td>Until reseeded</td></tr>
+        <tr><td>Watched list, ratings, pantry, shopping list</td><td>localStorage</td><td class="num">&lt; 50 KB, capped</td><td>Per browser. Safari can clear it after 7 days without a visit.</td></tr>
+        <tr><td>Assistant conversation</td><td>Browser memory</td><td class="num">Small</td><td>Until the tab closes</td></tr>
+        <tr><td>Model name, token limits, rate limits</td><td>Worker config</td><td class="num">n/a</td><td>Server only. The client cannot change them.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>Free plan budget</h3>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Service</th><th>Free limit</th><th>Our expected use</th></tr></thead>
+      <tbody>
+        <tr><td>Pages</td><td>Unlimited static requests</td><td>App shell and catalog files</td></tr>
+        <tr><td>Workers / Functions</td><td class="num">100k requests/day</td><td>Submits only. Typing makes no requests.</td></tr>
+        <tr><td>Workers AI</td><td class="num">10k neurons/day</td><td>Mostly assistant LLM calls. Measure in the spike.</td></tr>
+        <tr><td>Vectorize</td><td class="num">≈ 5M stored dims, ≈ 30M queried dims/month</td><td>3.84M stored. Tens of thousands of queries/month.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">Limits as last known. Check Cloudflare's pricing pages before you build. When the quota runs out, the free plan returns errors. It does not bill you.</p>
+</section>
+
+<section aria-labelledby="h-lat">
+  <div class="sec-head">
+    <div class="eyebrow">Performance</div>
+    <h2 id="h-lat">Latency budget</h2>
+    <p>Estimates, not measurements. The spike will replace them. The scale is logarithmic.</p>
+  </div>
+  <div class="chart" id="chart"></div>
+</section>
+
+<section aria-labelledby="h-repo">
+  <div class="sec-head">
+    <div class="eyebrow">Code</div>
+    <h2 id="h-repo">Repository layout</h2>
+    <p>pnpm workspaces only. Each app supplies dictionaries, rules, workflows and tools. The harness supplies everything else.</p>
+  </div>
+<pre class="tree">alfred/
+├── libs/
+│   └── agent-harness/     <span class="c"># parser, router, workflow runner, agent loop,</span>
+│                          <span class="c"># tool registry, validation, LLMProvider interface</span>
+└── apps/
+    └── web/               <span class="c"># one Cloudflare Pages project</span>
+        ├── src/           <span class="c"># Vite + React: chip UI, localStorage, movie tools</span>
+        ├── functions/api/movies/
+        │   ├── search.ts  <span class="c"># embed + Vectorize query</span>
+        │   ├── details.ts <span class="c"># overview, tagline, keywords</span>
+        │   └── chat.ts    <span class="c"># fixed model and tools, via AI Gateway</span>
+        ├── server/        <span class="c"># shared server code</span>
+        └── scripts/
+            ├── seed.ts    <span class="c"># TMDB to catalog files and vectors</span>
+            └── compare-models.ts</pre>
+</section>
+
+<section aria-labelledby="h-next">
+  <div class="sec-head">
+    <div class="eyebrow">Status</div>
+    <h2 id="h-next">Open items</h2>
+  </div>
+  <ul class="todo">
+    <li><span class="st next">Next</span><span>Latency and quota spike: one Pages Function, 100 seed items. Log time per step and neurons per assistant request.</span></li>
+    <li><span class="st open">Open</span><span>Choose the LLM: test 2-3 Workers AI models on the real tool schemas.</span></li>
+    <li><span class="st open">Open</span><span>Catalog source and license. TMDB requires attribution. IMDb datasets are non-commercial only.</span></li>
+    <li><span class="st open">Open</span><span>Verify Vectorize free limits and whether metadata filters work on array fields.</span></li>
+    <li><span class="st open">Open</span><span>Define pantry dictionaries (ingredients, diets, cuisines) and its workflows.</span></li>
+  </ul>
+</section>
+
+<footer>Sample movie data is for illustration. Ratings are approximate.</footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var norm = function (s) { return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[‘’]/g, "'"); };
+  var key = function (s) { return norm(s).replace(/[^a-z0-9]/g, ""); };
+  var esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
+
+  /* ---------- Sample catalog ---------- */
+  var F = function (id, title, year, runtime, genres, rating, cast, director) { return { id: id, title: title, year: year, runtime: runtime, genres: genres, rating: rating, cast: cast, director: director }; };
+  var CATALOG = [
+    F(1, "Inception", 2010, 148, ["sci-fi", "action", "thriller"], 8.8, ["Leonardo DiCaprio", "Joseph Gordon-Levitt", "Elliot Page", "Tom Hardy"], ["Christopher Nolan"]),
+    F(2, "Interstellar", 2014, 169, ["sci-fi", "drama", "adventure"], 8.7, ["Matthew McConaughey", "Anne Hathaway", "Jessica Chastain"], ["Christopher Nolan"]),
+    F(3, "The Dark Knight", 2008, 152, ["action", "crime", "drama"], 9.0, ["Christian Bale", "Heath Ledger", "Aaron Eckhart"], ["Christopher Nolan"]),
+    F(4, "Heat", 1995, 170, ["crime", "thriller", "action"], 8.3, ["Al Pacino", "Robert De Niro", "Val Kilmer"], ["Michael Mann"]),
+    F(5, "The Irishman", 2019, 209, ["crime", "drama"], 7.8, ["Robert De Niro", "Al Pacino", "Joe Pesci"], ["Martin Scorsese"]),
+    F(6, "The Godfather Part II", 1974, 202, ["crime", "drama"], 9.0, ["Al Pacino", "Robert De Niro", "Robert Duvall"], ["Francis Ford Coppola"]),
+    F(7, "Righteous Kill", 2008, 101, ["crime", "thriller"], 6.0, ["Robert De Niro", "Al Pacino"], ["Jon Avnet"]),
+    F(8, "The Hunger Games", 2012, 142, ["action", "adventure", "sci-fi"], 7.2, ["Jennifer Lawrence", "Josh Hutcherson", "Liam Hemsworth"], ["Gary Ross"]),
+    F(9, "The Hunger Games: Catching Fire", 2013, 146, ["action", "adventure", "sci-fi"], 7.5, ["Jennifer Lawrence", "Josh Hutcherson", "Liam Hemsworth"], ["Francis Lawrence"]),
+    F(10, "Red Sparrow", 2018, 140, ["action", "drama", "thriller"], 6.6, ["Jennifer Lawrence", "Joel Edgerton"], ["Francis Lawrence"]),
+    F(11, "X-Men: First Class", 2011, 131, ["action", "adventure", "sci-fi"], 7.7, ["James McAvoy", "Michael Fassbender", "Jennifer Lawrence"], ["Matthew Vaughn"]),
+    F(12, "Silver Linings Playbook", 2012, 122, ["comedy", "drama", "romance"], 7.7, ["Bradley Cooper", "Jennifer Lawrence", "Robert De Niro"], ["David O. Russell"]),
+    F(13, "Passengers", 2016, 116, ["sci-fi", "romance", "drama"], 7.0, ["Jennifer Lawrence", "Chris Pratt"], ["Morten Tyldum"]),
+    F(14, "Joy", 2015, 124, ["drama", "comedy"], 6.6, ["Jennifer Lawrence", "Robert De Niro", "Bradley Cooper"], ["David O. Russell"]),
+    F(15, "American Hustle", 2013, 138, ["crime", "drama"], 7.2, ["Christian Bale", "Bradley Cooper", "Amy Adams", "Jennifer Lawrence"], ["David O. Russell"]),
+    F(16, "Arrival", 2016, 116, ["sci-fi", "drama", "mystery"], 7.9, ["Amy Adams", "Jeremy Renner"], ["Denis Villeneuve"]),
+    F(17, "Dune", 2021, 155, ["sci-fi", "adventure", "action", "drama"], 8.0, ["Timothee Chalamet", "Rebecca Ferguson", "Zendaya"], ["Denis Villeneuve"]),
+    F(18, "Sicario", 2015, 121, ["action", "crime", "thriller"], 7.6, ["Emily Blunt", "Benicio del Toro", "Josh Brolin"], ["Denis Villeneuve"]),
+    F(19, "Prisoners", 2013, 153, ["crime", "drama", "mystery", "thriller"], 8.1, ["Hugh Jackman", "Jake Gyllenhaal"], ["Denis Villeneuve"]),
+    F(20, "La La Land", 2016, 128, ["comedy", "drama", "romance"], 8.0, ["Ryan Gosling", "Emma Stone"], ["Damien Chazelle"]),
+    F(21, "Superbad", 2007, 113, ["comedy"], 7.6, ["Jonah Hill", "Michael Cera", "Emma Stone"], ["Greg Mottola"]),
+    F(22, "Toy Story", 1995, 81, ["animation", "family", "comedy", "adventure"], 8.3, ["Tom Hanks", "Tim Allen"], ["John Lasseter"]),
+    F(23, "Cast Away", 2000, 143, ["drama", "adventure"], 7.8, ["Tom Hanks", "Helen Hunt"], ["Robert Zemeckis"]),
+    F(24, "Forrest Gump", 1994, 142, ["drama", "romance"], 8.8, ["Tom Hanks", "Robin Wright"], ["Robert Zemeckis"]),
+    F(25, "The Matrix", 1999, 136, ["sci-fi", "action"], 8.7, ["Keanu Reeves", "Laurence Fishburne", "Carrie-Anne Moss"], ["Lana Wachowski", "Lilly Wachowski"]),
+    F(26, "John Wick", 2014, 101, ["action", "thriller", "crime"], 7.4, ["Keanu Reeves", "Willem Dafoe"], ["Chad Stahelski"]),
+    F(27, "Thor: Ragnarok", 2017, 130, ["action", "adventure", "comedy"], 7.9, ["Chris Hemsworth", "Tom Hiddleston", "Cate Blanchett"], ["Taika Waititi"]),
+    F(28, "Rush", 2013, 123, ["drama", "action"], 8.1, ["Chris Hemsworth", "Daniel Bruhl"], ["Ron Howard"]),
+    F(29, "Get Out", 2017, 104, ["horror", "mystery", "thriller"], 7.8, ["Daniel Kaluuya", "Allison Williams"], ["Jordan Peele"]),
+    F(30, "Hereditary", 2018, 127, ["horror", "drama", "mystery"], 7.3, ["Toni Collette", "Alex Wolff"], ["Ari Aster"]),
+    F(31, "A Quiet Place", 2018, 90, ["horror", "sci-fi", "drama"], 7.5, ["Emily Blunt", "John Krasinski"], ["John Krasinski"]),
+    F(32, "Paddington 2", 2017, 103, ["family", "comedy", "adventure"], 7.8, ["Ben Whishaw", "Hugh Grant", "Sally Hawkins"], ["Paul King"]),
+    F(33, "Spirited Away", 2001, 125, ["animation", "fantasy", "family", "adventure"], 8.6, [], ["Hayao Miyazaki"]),
+    F(34, "Knives Out", 2019, 130, ["comedy", "crime", "mystery"], 7.9, ["Daniel Craig", "Ana de Armas", "Chris Evans"], ["Rian Johnson"]),
+    F(35, "The Wolf of Wall Street", 2013, 180, ["comedy", "crime"], 8.2, ["Leonardo DiCaprio", "Jonah Hill", "Margot Robbie"], ["Martin Scorsese"]),
+    F(36, "Mad Max: Fury Road", 2015, 120, ["action", "adventure", "sci-fi"], 8.1, ["Tom Hardy", "Charlize Theron"], ["George Miller"]),
+    F(37, "Taxi Driver", 1976, 114, ["crime", "drama"], 8.2, ["Robert De Niro", "Jodie Foster"], ["Martin Scorsese"]),
+    F(38, "Scarface", 1983, 170, ["crime", "drama"], 8.3, ["Al Pacino", "Michelle Pfeiffer"], ["Brian De Palma"])
+  ];
+
+  /* ---------- Dictionaries (built from data, as the seed script would) ---------- */
+  var GENRES = {
+    "sci-fi": ["sci-fi", "scifi", "science fiction", "sf"], action: ["action"], comedy: ["comedy", "comedies", "funny"],
+    drama: ["drama", "dramas"], horror: ["horror", "scary"], thriller: ["thriller", "thrillers"], romance: ["romance", "romantic"],
+    crime: ["crime"], animation: ["animation", "animated", "cartoon"], family: ["family", "kids"], fantasy: ["fantasy"],
+    adventure: ["adventure", "adventures"], mystery: ["mystery", "whodunit"]
+  };
+  var COMMON_SURNAMES = { stone: 1, hill: 1, king: 1, wood: 1, young: 1, hunt: 1, bell: 1, fox: 1, day: 1, hardy: 1, grant: 1, blunt: 1, bale: 1, page: 1, moss: 1, ledger: 1, foster: 1, wright: 1 };
+  var PARTICLES = { de: 1, del: 1, da: 1, di: 1, van: 1, von: 1, le: 1 };
+  var DICT = {}, FIRST = {}, TITLES = {}, COMMON_HIT = {};
+
+  Object.keys(GENRES).forEach(function (g) {
+    GENRES[g].forEach(function (a) { DICT[key(a)] = { kind: "genre", id: g, label: g === "sci-fi" ? "Sci-fi" : g.charAt(0).toUpperCase() + g.slice(1), alias: a !== g }; });
+  });
+  var people = {};
+  CATALOG.forEach(function (f) {
+    f.cast.forEach(function (n) { (people[n] = people[n] || { name: n, role: "actor", n: 0 }).n++; });
+    f.director.forEach(function (n) { (people[n] = people[n] || { name: n, role: "director", n: 0 }).n++; });
+    TITLES[key(f.title)] = f;
+    if (/^the /i.test(f.title)) TITLES[key(f.title.slice(4))] = f;
+    var short = f.title.split(":")[0];
+    if (short !== f.title) TITLES[key(short)] = TITLES[key(short)] || f;
+  });
+  var bySurname = {};
+  Object.keys(people).forEach(function (n) {
+    var p = people[n], parts = n.split(" ");
+    DICT[key(n)] = { kind: "person", id: n, label: n, role: p.role };
+    var idx = parts.length - 1;
+    for (var i = 1; i < parts.length - 1; i++) { if (PARTICLES[parts[i].toLowerCase()]) { idx = i; break; } }
+    var sk = key(parts.slice(idx).join(" "));
+    (bySurname[sk] = bySurname[sk] || []).push(p);
+    var fk = key(parts[0]);
+    (FIRST[fk] = FIRST[fk] || []).push(p);
+  });
+  Object.keys(bySurname).forEach(function (sk) {
+    var list = bySurname[sk].sort(function (a, b) { return b.n - a.n; });
+    if (COMMON_SURNAMES[sk]) { COMMON_HIT[sk] = list.map(function (p) { return p.name; }); return; }
+    if (DICT[sk]) return;
+    var top = list[0], alts = list.slice(1).map(function (p) { return p.name; });
+    var clear = list.length === 1 || top.n >= 3 * list[1].n;
+    DICT[sk] = { kind: "person", id: top.name, label: top.name, role: top.role, surname: true, ambiguous: !clear, alts: alts };
+  });
+  Object.keys(FIRST).forEach(function (fk) { FIRST[fk].sort(function (a, b) { return b.n - a.n; }); });
+
+  var STOP = {};
+  ("a an the movie movies film films flick flicks show shows me find some something with and i want to watch for of in that which who whos starring star stars by directed director from any give recommend suggest please tonight is are what whats good great one ones kind type but about get see can you there set has have having including includes include contains containing on it its featuring also looking need like similar to as maybe really very just lot this these those").split(" ").forEach(function (w) { STOP[w] = 1; });
+  var NEG = { not: 1, no: 1, without: 1, except: 1, excluding: 1, exclude: 1, hate: 1, hates: 1, dislike: 1, dislikes: 1, nothing: 1, dont: 1, doesnt: 1, isnt: 1, arent: 1, avoid: 1, skip: 1, minus: 1 };
+  var NEGP = [["does", "not"], ["do", "not"], ["is", "not"], ["are", "not"], ["other", "than"], ["anything", "but"]];
+  var TASK1 = { plan: "plan", schedule: "plan", marathon: "plan", compare: "compare", versus: "compare", vs: "compare", explain: "explain", why: "explain", summarize: "summarize", summarise: "summarize", decide: "decide", friend: "group pick", friends: "group pick" };
+  var TASKP = [[["me", "and"], "group pick"], [["my", "friend"], "group pick"], [["my", "friends"], "group pick"], [["both", "of", "us"], "group pick"], [["movie", "night"], "plan"], [["should", "i"], "decide"]];
+  var PERSONAL = [["havent", "seen"], ["havent", "watched"], ["not", "seen"], ["not", "watched"], ["new", "to", "me"], ["unwatched"], ["unseen"]];
+  var NUMW = { one: 1, two: 2, three: 3, four: 4, five: 5, a: 1, an: 1 };
+  var UNIT_H = { h: 1, hr: 1, hrs: 1, hour: 1, hours: 1 }, UNIT_M = { m: 1, min: 1, mins: 1, minute: 1, minutes: 1 };
+
+  function lev(a, b) {
+    var m = a.length, n = b.length, d = [], i, j;
+    for (i = 0; i <= m; i++) d[i] = [i];
+    for (j = 0; j <= n; j++) d[0][j] = j;
+    for (i = 1; i <= m; i++) for (j = 1; j <= n; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return d[m][n];
+  }
+  function fmtRun(m) { return Math.floor(m / 60) + "h " + (m % 60 ? (m % 60) + "m" : "").trim(); }
+
+  /* ---------- Parser ---------- */
+  function parse(text) {
+    var toks = norm(text).replace(/["“”]/g, " ").replace(/([,;!?])/g, " $1 ").split(/\s+/)
+      .map(function (t) { return t.replace(/^[.(]+|[.):]+$/g, ""); }).filter(Boolean);
+    var K = function (j) { return j < toks.length ? key(toks[j]) : ""; };
+    var seq = function (j, arr) { for (var o = 0; o < arr.length; o++) if (K(j + o) !== arr[o]) return false; return true; };
+    var chips = [], leftover = [], trace = [], suggest = null;
+    var neg = false, negHit = false, i = 0;
+    var add = function (c) { chips.push(c); };
+    var clearNeg = function () { neg = false; negHit = false; };
+
+    function num(j) {
+      var t = toks[j]; if (!t) return null;
+      var m = t.match(/^(\d+(?:\.\d+)?)(h|hr|hrs|hour|hours|m|min|mins|minute|minutes)?$/);
+      if (m) return { n: parseFloat(m[1]), unit: m[2] || null };
+      if (NUMW[K(j)]) return { n: NUMW[K(j)], unit: null };
+      return null;
+    }
+
+    while (i < toks.length) {
+      var k = K(i), raw = toks[i], matched = false, p;
+      if (!k) { i++; continue; }
+
+      for (p = 0; p < PERSONAL.length && !matched; p++) if (seq(i, PERSONAL[p])) {
+        add({ kind: "user", id: "unwatched", label: "Unwatched only" });
+        trace.push('<b>"' + esc(PERSONAL[p].join(" ")) + '"</b> uses your watched list from localStorage');
+        i += PERSONAL[p].length; matched = true; clearNeg();
+      }
+      if (matched) continue;
+
+      for (p = 0; p < TASKP.length && !matched; p++) if (seq(i, TASKP[p][0])) {
+        add({ kind: "task", id: TASKP[p][1], label: TASKP[p][1] });
+        trace.push('<b>"' + esc(TASKP[p][0].join(" ")) + '"</b> is a task phrase: ' + TASKP[p][1]);
+        i += TASKP[p][0].length; matched = true; clearNeg();
+      }
+      if (matched) continue;
+      if (TASK1[k]) {
+        add({ kind: "task", id: TASK1[k], label: TASK1[k] });
+        trace.push('<b>"' + esc(raw) + '"</b> is a task word: ' + TASK1[k]);
+        i++; clearNeg(); continue;
+      }
+
+      var negLen = NEG[k] ? 1 : 0;
+      for (p = 0; p < NEGP.length && !negLen; p++) if (seq(i, NEGP[p])) negLen = NEGP[p].length;
+      if (negLen) {
+        neg = true; negHit = false;
+        trace.push('<b>"' + esc(toks.slice(i, i + negLen).join(" ")) + '"</b> starts an exclusion');
+        i += negLen; continue;
+      }
+
+      if ((k === "highly" || k === "top" || k === "well") && K(i + 1) === "rated") {
+        add({ kind: "rating", id: 8, label: "Rating ≥ 8" });
+        trace.push('<b>"' + esc(raw + " rated") + '"</b> → rating ≥ 8');
+        i += 2; clearNeg(); continue;
+      }
+      var star = raw.match(/^(\d+(?:\.\d+)?)(\+|\/10)$/);
+      if (star && parseFloat(star[1]) <= 10) {
+        add({ kind: "rating", id: parseFloat(star[1]), label: "Rating ≥ " + parseFloat(star[1]) });
+        trace.push('<b>"' + esc(raw) + '"</b> → rating ≥ ' + parseFloat(star[1]));
+        i++; clearNeg(); continue;
+      }
+      if (k === "rated" || k === "rating") {
+        var j = i + 1; if (K(j) === "above" || K(j) === "over") j++; if (K(j) === "at" && K(j + 1) === "least") j += 2;
+        var rn = num(j);
+        if (rn && rn.n <= 10) {
+          if (K(j + 1) === "stars" || K(j + 1) === "star") j++;
+          add({ kind: "rating", id: rn.n, label: "Rating ≥ " + rn.n });
+          trace.push('<b>"' + esc(toks.slice(i, j + 1).join(" ")) + '"</b> → rating ≥ ' + rn.n);
+          i = j + 1; clearNeg(); continue;
+        }
+      }
+
+      if (k === "short" || k === "quick") {
+        add({ kind: "runtime", id: "max100", max: 100, label: "≤ 100 min" });
+        trace.push('<b>"' + esc(raw) + '"</b> → runtime ≤ 100 min');
+        i++; clearNeg(); continue;
+      }
+      var atLeast = k === "at" && K(i + 1) === "least";
+      var isMax = { under: 1, less: 1, shorter: 1, below: 1, within: 1, max: 1 }[k], isMin = atLeast || { over: 1, longer: 1, more: 1, above: 1, greater: 1 }[k];
+      var runtimeWord = k === "shorter" || k === "longer";
+      if (isMax || isMin) {
+        var j2 = i + (atLeast ? 2 : 1); if (K(j2) === "than") j2++;
+        var rt = num(j2);
+        if (rt) {
+          var end = j2, unit = rt.unit, nk = K(j2 + 1);
+          if (!unit && (UNIT_H[nk] || UNIT_M[nk])) { unit = nk; end = j2 + 1; }
+          var ratingUnit = !unit && (nk === "stars" || nk === "star" || nk === "rating");
+          var phrase = toks.slice(i, (ratingUnit ? end + 1 : end) + 1).join(" ");
+          if (ratingUnit || (!unit && !runtimeWord && isMin && rt.n <= 10)) {
+            add({ kind: "rating", id: rt.n, label: "Rating ≥ " + rt.n });
+            trace.push('<b>"' + esc(phrase) + '"</b> → rating ≥ ' + rt.n + (ratingUnit ? "" : ". A number of 10 or less with no unit means rating."));
+            i = end + (ratingUnit ? 2 : 1); clearNeg(); continue;
+          }
+          var mins;
+          if (unit) mins = UNIT_H[unit] ? rt.n * 60 : rt.n;
+          else if (rt.n <= 4) mins = rt.n * 60;
+          else if (rt.n >= 30) mins = rt.n;
+          else {
+            trace.push('<b>"' + esc(phrase) + '"</b> is ambiguous. Add a unit: "hours", "min" or "stars".');
+            i = end + 1; clearNeg(); continue;
+          }
+          mins = Math.round(mins);
+          add({ kind: "runtime", id: (isMax ? "max" : "min") + mins, max: isMax ? mins : null, min: isMin ? mins : null, label: (isMax ? "≤ " : "≥ ") + mins + " min" });
+          trace.push('<b>"' + esc(toks.slice(i, end + 1).join(" ")) + '"</b> → runtime ' + (isMax ? "≤ " : "≥ ") + mins + " min");
+          i = end + 1; clearNeg(); continue;
+        }
+      }
+
+      var dec = raw.match(/^'?(\d{2}|\d{4})s$/);
+      if (dec) {
+        var y = parseInt(dec[1], 10); if (y < 100) y += y >= 30 ? 1900 : 2000;
+        add({ kind: "year", id: "d" + y, ymin: y, ymax: y + 9, label: y + "s" });
+        trace.push('<b>"' + esc(raw) + '"</b> → year ' + y + "-" + (y + 9));
+        i++; clearNeg(); continue;
+      }
+      if ((k === "after" || k === "since" || k === "from" || k === "before" || k === "until") && /^(19|20)\d{2}$/.test(K(i + 1))) {
+        var yy = parseInt(K(i + 1), 10), before = k === "before" || k === "until";
+        add({ kind: "year", id: k + yy, ymin: before ? null : yy, ymax: before ? yy - 1 : null, label: (before ? "Before " : "From ") + yy });
+        trace.push('<b>"' + esc(raw + " " + toks[i + 1]) + '"</b> → year ' + (before ? "< " : "≥ ") + yy);
+        i += 2; clearNeg(); continue;
+      }
+      if (/^(19|20)\d{2}$/.test(k)) {
+        var y1 = parseInt(k, 10);
+        add({ kind: "year", id: "y" + y1, ymin: y1, ymax: y1, label: String(y1) });
+        trace.push('<b>"' + esc(raw) + '"</b> → year ' + y1);
+        i++; clearNeg(); continue;
+      }
+      if (k === "recent" || (k === "new" && K(i + 1) !== "to")) {
+        add({ kind: "year", id: "recent", ymin: 2015, ymax: null, label: "2015 or later" });
+        trace.push('<b>"' + esc(raw) + '"</b> → year ≥ 2015'); i++; clearNeg(); continue;
+      }
+      if (k === "classic" || k === "old" || k === "older") {
+        add({ kind: "year", id: "classic", ymin: null, ymax: 1999, label: "Before 2000" });
+        trace.push('<b>"' + esc(raw) + '"</b> → year < 2000'); i++; clearNeg(); continue;
+      }
+
+      if (k === "like" || (k === "similar" && K(i + 1) === "to")) {
+        var s = k === "like" ? i + 1 : i + 2, hit = null, hn = 0;
+        for (var n = Math.min(7, toks.length - s); n >= 1 && !hit; n--) {
+          var tk = toks.slice(s, s + n).map(key).join("");
+          if (TITLES[tk]) { hit = TITLES[tk]; hn = n; }
+        }
+        if (hit) {
+          add({ kind: "similar", id: hit.id, label: hit.title });
+          trace.push('<b>"' + esc(toks.slice(i, s + hn).join(" ")) + '"</b> → similar to ' + esc(hit.title) + ". Titles match only after \"like\".");
+          i = s + hn; clearNeg(); continue;
+        }
+      }
+
+      var ent = null, used = 0, nonNeg = false;
+      if (/^non-?./.test(raw) && DICT[key(raw.replace(/^non-?/, ""))]) { ent = DICT[key(raw.replace(/^non-?/, ""))]; used = 1; nonNeg = true; }
+      for (var g = Math.min(4, toks.length - i); g >= 1 && !ent; g--) {
+        var gk = toks.slice(i, i + g).map(key).join("");
+        if (DICT[gk]) { ent = DICT[gk]; used = g; }
+      }
+      var fuzzy = false;
+      if (!ent) {
+        var bi = K(i) + K(i + 1);
+        if (toks[i + 1] && bi.length >= 9) Object.keys(DICT).forEach(function (dk) { if (!ent && DICT[dk].kind === "person" && !DICT[dk].surname && dk.length >= 9 && lev(bi, dk) <= 2) { ent = DICT[dk]; used = 2; fuzzy = true; } });
+        if (!ent && k.length >= 5) Object.keys(DICT).forEach(function (dk) { if (!ent && dk.length >= 5 && lev(k, dk) === 1) { ent = DICT[dk]; used = 1; fuzzy = true; } });
+      }
+      if (ent) {
+        var src = toks.slice(i, i + used).join(" ");
+        var c = { kind: ent.kind === "genre" ? "genre" : ent.role, id: ent.id, label: ent.label, negate: neg || nonNeg, fuzzy: fuzzy, ambiguous: ent.ambiguous, alts: ent.alts };
+        add(c);
+        var why = ent.kind === "genre" ? (ent.alias ? "genre alias" : "genre") : ent.role + (ent.surname ? ", surname only" : "") + (src.replace(/\s/g, "").toLowerCase() !== key(ent.label) && !fuzzy && !ent.surname ? ", spacing and case ignored" : "");
+        if (fuzzy) why += ", typo tolerance";
+        trace.push('<b>"' + esc(src) + '"</b> → ' + (neg || nonNeg ? "exclude " : "") + esc(ent.label) + " (" + why + ")" + (ent.ambiguous ? ". Ambiguous, also: " + esc(ent.alts.join(", ")) : ent.alts && ent.alts.length ? ". Also: " + esc(ent.alts.join(", ")) : ""));
+        if (neg) negHit = true;
+        i += used; continue;
+      }
+
+      if ((k === "or" || k === "nor") && neg && negHit) { i++; continue; }
+
+      if (STOP[k]) {
+        if (neg && negHit) clearNeg();
+        i++; continue;
+      }
+
+      if (COMMON_HIT[k]) trace.push('<b>"' + esc(raw) + '"</b> not matched alone. It is a common word. Type the full name, for example ' + esc(COMMON_HIT[k][0]) + ".");
+      if (FIRST[k] && i === toks.length - 1 && FIRST[k][0].n >= 2) {
+        suggest = { from: raw, to: FIRST[k][0].name };
+        trace.push('<b>"' + esc(raw) + '"</b> is a partial name. Suggest ' + esc(FIRST[k][0].name) + ".");
+        i++; continue;
+      }
+      leftover.push(raw);
+      if (neg) { trace.push("Exclusion did not apply: <b>\"" + esc(raw) + "\"</b> is not a known genre or person"); clearNeg(); }
+      i++;
+    }
+    if (leftover.length) trace.push("Free text: <b>" + esc(leftover.join(" ")) + "</b>. Not in the dictionaries, so semantic search ranks by meaning.");
+
+    var seen = {}, out = [];
+    chips.forEach(function (c) { var sig = c.kind + ":" + c.id + ":" + !!c.negate; if (!seen[sig]) { seen[sig] = 1; c.sig = sig; out.push(c); } });
+    return { chips: out, leftover: leftover, trace: trace, suggest: suggest };
+  }
+
+  function routeOf(r) {
+    var tasks = r.chips.filter(function (c) { return c.kind === "task"; });
+    if (tasks.length) return "assistant";
+    if (r.leftover.length || r.chips.some(function (c) { return c.kind === "similar"; })) return "semantic";
+    if (r.chips.length) return "local";
+    return "empty";
+  }
+
+  function applyFilters(chips, watched) {
+    var sim = null;
+    var list = CATALOG.filter(function (f) {
+      var who = f.cast.concat(f.director);
+      for (var i = 0; i < chips.length; i++) {
+        var c = chips[i];
+        if (c.kind === "genre") { if (c.negate ? f.genres.indexOf(c.id) >= 0 : f.genres.indexOf(c.id) < 0) return false; }
+        else if (c.kind === "actor" || c.kind === "director") { if (c.negate ? who.indexOf(c.id) >= 0 : who.indexOf(c.id) < 0) return false; }
+        else if (c.kind === "runtime") { if ((c.max && f.runtime > c.max) || (c.min && f.runtime < c.min)) return false; }
+        else if (c.kind === "year") { if ((c.ymin && f.year < c.ymin) || (c.ymax && f.year > c.ymax)) return false; }
+        else if (c.kind === "rating") { if (f.rating < c.id) return false; }
+        else if (c.kind === "similar") { sim = CATALOG.filter(function (x) { return x.id === c.id; })[0]; if (f.id === c.id) return false; }
+      }
+      return true;
+    });
+    var score = function (f) { return sim ? f.genres.filter(function (g) { return sim.genres.indexOf(g) >= 0; }).length : 0; };
+    if (sim) list = list.filter(function (f) { return score(f) > 0; });
+    list.sort(function (a, b) { return score(b) - score(a) || b.rating - a.rating; });
+    var hidden = list.filter(function (f) { return watched[f.id]; }).length;
+    return { list: list.filter(function (f) { return !watched[f.id]; }), hidden: hidden };
+  }
+
+  /* ---------- UI ---------- */
+  if (typeof document === "undefined") { if (typeof module !== "undefined") module.exports = { parse: parse, routeOf: routeOf, applyFilters: applyFilters }; return; }
+
+  var $ = function (id) { return document.getElementById(id); };
+  var q = $("q"), removed = {}, prevSigs = {}, timer = null;
+  var watched = {};
+  try { watched = JSON.parse(localStorage.getItem("alfred-watched") || "{}") || {}; } catch (e) { watched = {}; }
+  var saveWatched = function () { try { localStorage.setItem("alfred-watched", JSON.stringify(watched)); } catch (e) {} };
+
+  var EXAMPLES = [
+    "a jennifer lawrence action movie",
+    "movie with deNiro and pacino",
+    "like inception but not sci-fi, under 2 hours",
+    "a 90s crime movie with pacino",
+    "mind-bending villeneuve film",
+    "hemsworth action",
+    "jenifer lawrance comedy",
+    "highly rated sci-fi i haven't seen",
+    "emma stone comedy",
+    "movie above 7 that does not have horror",
+    "crime without de niro, at least 2 hours",
+    "plan a movie night for me and a friend who hates horror"
+  ];
+  var exBox = $("examples");
+  EXAMPLES.forEach(function (t) {
+    var b = document.createElement("button"); b.type = "button"; b.className = "ex"; b.textContent = t;
+    b.addEventListener("click", function () { q.value = t; removed = {}; render(); q.focus(); });
+    exBox.appendChild(b);
+  });
+
+  var KIND_LABEL = { genre: "genre", actor: "actor", director: "director", runtime: "runtime", year: "year", rating: "rating", similar: "like", task: "task", user: "my data" };
+  var ROUTES = {
+    local: { name: "Local filter", calls: "0 AI calls", net: "No network", lat: "< 10 ms" },
+    semantic: { name: "Semantic search", calls: "1 embedding · 0 LLM", net: "1 request on submit", lat: "≈ 0.1-0.3 s" },
+    assistant: { name: "Assistant", calls: "2-5 LLM calls", net: "Several requests", lat: "≈ 3-7 s" },
+    empty: { name: "Waiting for input", calls: "", net: "", lat: "" }
+  };
+
+  function render() {
+    var r = parse(q.value);
+    var chips = r.chips.filter(function (c) { return !removed[c.sig]; });
+    var route = routeOf({ chips: chips, leftover: r.leftover });
+
+    var ch = $("chips"), html = "", sigs = {};
+    chips.forEach(function (c) {
+      sigs[c.sig] = 1;
+      var cls = "chip" + (c.negate ? " neg" : "") + (c.kind === "task" ? " task" : "") + (prevSigs[c.sig] ? "" : " new");
+      var kind = (c.negate ? "not " : "") + KIND_LABEL[c.kind];
+      var flag = c.fuzzy ? '<span class="flag" title="Matched with typo tolerance">≈</span>' : c.ambiguous ? '<span class="flag" title="Also: ' + esc(c.alts.join(", ")) + '">?</span>' : "";
+      html += '<span class="' + cls + '"><span class="kind">' + esc(kind) + '</span><span class="val">' + esc(c.label) + "</span>" + flag +
+        '<button type="button" class="x" data-sig="' + esc(c.sig) + '" aria-label="Remove ' + esc(kind + " " + c.label) + '">×</button></span>';
+    });
+    r.leftover.forEach(function (w) { html += '<span class="chip free"><span class="kind">free text</span><span class="val">' + esc(w) + "</span></span>"; });
+    if (r.suggest) html += '<button type="button" class="chip suggest" id="sug"><span class="kind">complete</span><span class="val">' + esc(r.suggest.to) + "?</span></button>";
+    if (!html) html = '<span class="placeholder">Chips appear here as you type.</span>';
+    ch.innerHTML = html;
+    prevSigs = sigs;
+    var sug = $("sug");
+    if (sug) sug.addEventListener("click", function () {
+      q.value = q.value.replace(new RegExp(r.suggest.from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*$", "i"), r.suggest.to + " ");
+      render(); q.focus();
+    });
+
+    var R = ROUTES[route], rhtml = '<div class="name">' + R.name + "</div>";
+    if (route !== "empty") rhtml += '<div class="stats"><span><b>' + R.calls + "</b></span><span>" + R.net + "</span><span>" + R.lat + "</span></div>";
+    if (route === "local") rhtml += "<p>Rules matched every word. The browser filters the catalog metadata. This preview is the final result.</p>";
+    if (route === "semantic") rhtml += "<p>" + (r.leftover.length ? "Free text remains: <b>" + esc(r.leftover.join(" ")) + "</b>. " : "") + "On submit, the Worker embeds the text and queries Vectorize, using the chips as filters.</p>";
+    if (route === "assistant") rhtml += "<p>Task words found. Rules can extract constraints, but a multi-step task needs the agent loop. Simulated plan:</p><ol>" +
+      "<li>Router: no workflow matches, so escalate to Level 3.</li><li>LLM call: read the request and propose <code>search_catalog</code> with the chips as arguments.</li>" +
+      "<li>Harness: validate the arguments and run the search. Read the watched list.</li><li>LLM call: rank the candidates and explain the choice. The answer streams to the UI.</li></ol>";
+    if (route === "empty") rhtml += '<p class="muted">Type a request or pick an example.</p>';
+    var rb = $("route"); rb.className = "route " + route; rb.innerHTML = rhtml;
+
+    $("trace").innerHTML = r.trace.length ? r.trace.map(function (t) { return "<li>" + t + "</li>"; }).join("") : '<li>Nothing parsed yet.</li>';
+
+    var res = applyFilters(chips, watched), top = res.list.slice(0, 5);
+    $("count").textContent = res.list.length + " of " + CATALOG.length + " match";
+    $("results").innerHTML = top.length ? top.map(function (f) {
+      return '<li><span class="t">' + esc(f.title) + '</span><button type="button" class="w" data-id="' + f.id + '">Mark watched</button><span class="m">' +
+        f.year + " · " + fmtRun(f.runtime) + " · ★ " + f.rating.toFixed(1) + " · " + f.genres.join(", ") + "</span></li>";
+    }).join("") : '<li><span class="empty">No sample movie matches these filters. The full 10k catalog would return more.</span></li>';
+    var note = route === "semantic" ? "Preview uses filters only. On submit, semantic search ranks results by meaning." : route === "assistant" ? "These candidates go to the assistant as tool output." : route === "local" ? "Sorted by rating." : "";
+    if (res.hidden) note += (note ? " " : "") + res.hidden + " hidden because you marked them watched. ";
+    $("resnote").innerHTML = esc(note) + (Object.keys(watched).length ? ' <button type="button" class="linkish" id="clearw">Clear watched list</button>' : "");
+    var cw = $("clearw"); if (cw) cw.addEventListener("click", function () { watched = {}; saveWatched(); render(); });
+  }
+
+  $("chips").addEventListener("click", function (e) {
+    var b = e.target.closest(".x"); if (!b) return;
+    removed[b.getAttribute("data-sig")] = 1; render(); q.focus();
+  });
+  $("results").addEventListener("click", function (e) {
+    var b = e.target.closest(".w"); if (!b) return;
+    watched[b.getAttribute("data-id")] = 1; saveWatched(); render();
+  });
+  q.addEventListener("input", function () { removed = {}; clearTimeout(timer); timer = setTimeout(render, 120); });
+  render();
+
+  /* ---------- Sequence diagram ---------- */
+  var FLOWS = [
+    { id: "load", tab: "Page load", total: "First paint ≈ 0.1-0.3 s · 0 AI calls", steps: [
+      { from: 0, to: 1, label: "GET app shell (HTML, JS, CSS)", meta: "≈ 150 KB gz" },
+      { from: 1, to: 0, label: "Static files from CDN cache", meta: "Pages" },
+      { self: 0, label: "Render UI. Read watched list and pantry from localStorage.", meta: "< 5 ms" },
+      { from: 0, to: 1, label: "GET catalog-meta.json + dictionaries.json, after first paint", meta: "≈ 500 KB gz" },
+      { self: 0, label: "Build in-memory index and rule dictionaries", meta: "≈ 20-50 ms" } ] },
+    { id: "typing", tab: "While typing", total: "No network · 0 AI calls", steps: [
+      { self: 0, label: "Tokenize and match rules. Update chips.", meta: "< 1 ms per keystroke" },
+      { self: 0, label: "Choose route from leftover words and task words", meta: "< 1 ms" },
+      { self: 0, label: "Filter metadata. Show live top 10.", meta: "150 ms debounce" } ] },
+    { id: "search", tab: "Submit: search", total: "≈ 0.1-0.3 s · 1 embedding · 0 LLM", steps: [
+      { from: 0, to: 1, label: "POST /api/movies/search { text, ids? }", meta: "" },
+      { from: 1, to: 2, label: "Embed free text (bge-small, 384 dims)", meta: "20-100 ms" },
+      { from: 1, to: 2, label: "Vectorize query: top 20 with filters", meta: "20-100 ms" },
+      { from: 1, to: 0, label: "IDs and scores", meta: "" },
+      { self: 0, label: "Remove watched IDs. Show top 10.", meta: "< 5 ms" } ] },
+    { id: "assistant", tab: "Submit: assistant", total: "≈ 3-7 s · 2-5 LLM calls", steps: [
+      { self: 0, label: "Harness starts the loop. Limit: 5 iterations.", meta: "" },
+      { from: 0, to: 1, label: "POST /api/movies/chat (messages; server adds tools)", meta: "" },
+      { from: 1, to: 2, label: "LLM via AI Gateway: fixed model, max_tokens, rate limit", meta: "0.5-1.5 s" },
+      { from: 1, to: 0, label: "Proposed tool call", meta: "" },
+      { self: 0, label: "Validate arguments. On error, send the error back to the LLM.", meta: "+1-2 s per retry" },
+      { from: 0, to: 2, label: "Tool: /api/movies/search (embed + Vectorize)", meta: "0.1-0.3 s" },
+      { self: 0, label: "Tool: read watched list from localStorage", meta: "< 1 ms" },
+      { from: 0, to: 2, label: "Final LLM call. Answer streams to the UI.", meta: "2-5 s" } ] }
+  ];
+  var tabs = $("tabs"), seqEl = $("seq");
+  function showFlow(id) {
+    var f = FLOWS.filter(function (x) { return x.id === id; })[0];
+    Array.prototype.forEach.call(tabs.children, function (b) { b.setAttribute("aria-selected", b.getAttribute("data-id") === id ? "true" : "false"); });
+    var h = '<div class="seq-inner"><div class="seq-total"><span>' + f.tab + "</span><span>" + f.total + "</span></div>" +
+      '<div class="lanes"><div>Browser<span>React app, harness</span></div><div>Cloudflare edge<span>Pages, Functions</span></div><div>AI and vectors<span>Workers AI, Vectorize</span></div></div><div class="steps">';
+    f.steps.forEach(function (s, i) {
+      var n = '<span class="n">' + (i + 1) + ".</span>", meta = s.meta ? '<span class="meta">' + s.meta + "</span>" : "";
+      if (s.self !== undefined) {
+        h += '<div class="step self"><div class="box" style="grid-column:' + (s.self + 1) + ' / span 1">' + n + s.label + meta + "</div></div>";
+      } else {
+        var a = Math.min(s.from, s.to), b = Math.max(s.from, s.to), kspan = b - a + 1;
+        h += '<div class="step"><div class="msg' + (s.from > s.to ? " rtl" : "") + '" style="grid-column:' + (a + 1) + " / " + (b + 2) + ";--k:" + kspan + '"><div class="lbl">' + n + s.label + meta + '</div><div class="line"></div></div></div>';
+      }
+    });
+    seqEl.innerHTML = h + "</div></div>";
+  }
+  FLOWS.forEach(function (f) {
+    var b = document.createElement("button"); b.type = "button"; b.className = "tab"; b.setAttribute("role", "tab"); b.setAttribute("data-id", f.id); b.textContent = f.tab;
+    b.addEventListener("click", function () { showFlow(f.id); });
+    tabs.appendChild(b);
+  });
+  showFlow("search");
+
+  /* ---------- Latency chart (log scale, 0.1 ms to 10 s) ---------- */
+  var pos = function (ms) { return (Math.log10(ms) + 1) / 5 * 100; };
+  var LAT = [
+    ["Chips while typing", 0.1, 1, "local", "< 1 ms"],
+    ["Live top-10 preview", 1, 10, "local", "1-10 ms"],
+    ["Semantic search", 100, 300, "semantic", "0.1-0.3 s"],
+    ["Assistant: first step shown", 1500, 3000, "llm", "1.5-3 s"],
+    ["Assistant: full answer", 3000, 7000, "llm", "3-7 s"]
+  ];
+  var ticks = [[0.1, "0.1 ms"], [1, "1 ms"], [10, "10 ms"], [100, "100 ms"], [1000, "1 s"], [10000, "10 s"]];
+  var grid = '<div class="grid">' + ticks.map(function (t) { return '<i style="left:' + pos(t[0]) + '%"></i>'; }).join("") + "</div>";
+  var ch2 = LAT.map(function (r) {
+    return '<div class="lat"><span class="lab">' + r[0] + '</span><div class="track">' + grid + '<span class="bar ' + r[3] + '" style="left:' + pos(r[1]) + "%;width:" + (pos(r[2]) - pos(r[1])) + '%"></span></div><span class="val">' + r[4] + "</span></div>";
+  }).join("");
+  ch2 += '<div class="lat axis"><span class="lab"></span><div class="track">' + ticks.map(function (t, i) {
+    var st = i === 0 ? "left:0;transform:none" : i === ticks.length - 1 ? "right:0;transform:none" : "left:" + pos(t[0]) + "%";
+    return '<span class="tick" style="' + st + '">' + t[1] + "</span>";
+  }).join("") + "</div><span></span></div>";
+  $("chart").innerHTML = ch2;
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+// Cloudflare Pages config. Functions live in ./functions, shared server code in ./server.
+{
+  "name": "alfred",
+  "pages_build_output_dir": "./dist",
+  "compatibility_date": "2026-10-01",
+  "ai": { "binding": "AI", "remote": true },
+  "vectorize": [
+    // One index per data set. Version suffix allows a clean swap when the embedding model changes.
+    { "binding": "VECTORIZE_MOVIES", "index_name": "alfred-movies-v1", "remote": true }
+  ]
+}
