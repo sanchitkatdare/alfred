@@ -14,13 +14,14 @@ import { parseArgs } from "node:util";
 import { createAgent, createToolRegistry, parse, type AgentEvent, type LLMProvider } from "@alfred/agent-harness";
 import { getPlatformProxy } from "wrangler";
 import { movieSystemPrompt, runMovieChat } from "../server/chat.ts";
-import { getMovieStories } from "../server/details.ts";
+import { embedQuery } from "../server/embed.ts";
 import type { Env } from "../server/env.ts";
-import { searchMovies } from "../server/search.ts";
 import { hydrateCatalog, type CatalogMeta, type Movie } from "../src/movies/catalog.ts";
 import { buildMovieParserConfig } from "../src/movies/config.ts";
 import { chipsToSearchHints, mergeSearchHints, type SearchHints } from "../src/movies/hints.ts";
+import { createStoryLoader, type StoryShard } from "../src/movies/stories.ts";
 import { createMovieTools } from "../src/movies/tools.ts";
+import { createVectorIndex, rankByVector } from "../src/movies/vectors.ts";
 
 const { values: cli, positionals } = parseArgs({ allowPositionals: true, allowNegative: true, options: { runs: { type: "string", default: "1" }, hints: { type: "boolean", default: true } } });
 const HINTS = cli.hints;
@@ -76,6 +77,9 @@ interface TaskResult { model: string; run: number; task: string; pass: boolean; 
 
 const meta = JSON.parse(await readFile("public/data/catalog-meta.json", "utf8")) as CatalogMeta;
 const catalog: Movie[] = hydrateCatalog(meta);
+// Same data path as the browser: 8-bit vectors and story files from public/data, query vectors from Workers AI.
+const vectorIndex = createVectorIndex(meta.movies.map((m) => m.id), new Int8Array(await readFile("public/data/catalog-vectors.bin")));
+const loadStories = createStoryLoader(async (path) => JSON.parse(await readFile(`public/${path}`, "utf8")) as StoryShard);
 const byTitle = (t: string) => catalog.find((m) => m.title === t)?.id ?? -1;
 const parserConfig = buildMovieParserConfig(catalog);
 
@@ -91,8 +95,8 @@ for (let round = 1; round <= RUNS; round++) for (const model of MODELS) {
       catalog,
       getWatched: () => watched,
       markWatched: (id) => watched.add(id),
-      search: async (text, ids) => (await searchMovies(env, { text, ids, limit: 50 })).body.results,
-      details: (ids) => getMovieStories(env, ids),
+      search: async (text, ids) => rankByVector(vectorIndex, (await embedQuery(env, text)).body.vector, ids),
+      details: loadStories,
       getHints: () => hints,
     }));
     let neurons = 0;

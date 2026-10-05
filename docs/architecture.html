@@ -185,7 +185,7 @@ footer { font-size: 13px; color: var(--muted); }
     <div class="decision"><span class="k">Hosting</span><span class="v">Cloudflare Pages + Functions, free plan</span><span class="was">Replaces Fly.io static server</span></div>
     <div class="decision"><span class="k">LLM</span><span class="v">Workers AI granite-4.0-h-micro, only for assistant tasks</span><span class="was">Replaces WebLLM in the browser</span></div>
     <div class="decision"><span class="k">Routing</span><span class="v">Rules first, embeddings second, LLM last</span><span class="was">Decision trace shown in the UI</span></div>
-    <div class="decision"><span class="k">Catalog</span><span class="v">≤ 10k movies. Metadata in browser, vectors in Vectorize</span><span class="was">Replaces Orama and Dexie</span></div>
+    <div class="decision"><span class="k">Catalog</span><span class="v">≤ 10k movies. Metadata and 8-bit search vectors in the browser</span><span class="was">Replaces Orama and Dexie</span></div>
     <div class="decision"><span class="k">User data</span><span class="v">localStorage, per browser, no accounts</span><span class="was">New browser starts empty</span></div>
     <div class="decision"><span class="k">People</span><span class="v">Top 3-5 cast and directors, one generic matcher</span><span class="was">Same matcher for genres and ingredients</span></div>
   </div>
@@ -239,8 +239,9 @@ footer { font-size: 13px; color: var(--muted); }
     <div class="node"><b>apps/web/scripts/seed.ts</b><span class="muted">Fetch from TMDB. Embed title, tagline, genres, overview and keywords with Workers AI.</span></div>
     <div class="arrow" aria-hidden="true">→</div>
     <div class="outs">
-      <div class="node"><b>catalog-meta.json + dictionaries.json</b><span class="muted">Static files on Pages. About 500 KB gzipped. No overviews, no vectors.</span></div>
-      <div class="node"><b>10k vectors, 384 dimensions</b><span class="muted">Vectorize index. 3.84M stored dimensions.</span></div>
+      <div class="node"><b>catalog-meta.json + catalog-synopses.json</b><span class="muted">Static files on Pages. About 1.2 MB gzipped at 10k.</span></div>
+      <div class="node"><b>catalog-vectors.bin</b><span class="muted">8-bit vectors, 384 per movie: 3.84 MB at 10k, 4 MB budget enforced by the seed.</span></div>
+      <div class="node"><b>stories/0-63.json</b><span class="muted">Overview, tagline, keywords. Fetched only for get_movie_details.</span></div>
     </div>
   </div>
 
@@ -261,7 +262,7 @@ footer { font-size: 13px; color: var(--muted); }
       <tbody>
         <tr><td>Chips while typing</td><td>None. Rules.</td><td>Browser</td><td>Every keystroke</td><td class="num"><span class="tag local">0</span></td></tr>
         <tr><td>Live top-10 preview</td><td>None. Metadata filter.</td><td>Browser</td><td>Typing, 150 ms debounce</td><td class="num"><span class="tag local">0</span></td></tr>
-        <tr><td>Semantic search</td><td>Embedding model (bge-small-en-v1.5)</td><td>Workers AI + Vectorize</td><td>Submit with descriptive words</td><td class="num"><span class="tag semantic">1 embedding</span></td></tr>
+        <tr><td>Semantic search</td><td>Embedding model (bge-small-en-v1.5)</td><td>Workers AI for the query vector; ranking in the browser</td><td>Submit with descriptive words</td><td class="num"><span class="tag semantic">1 embedding</span></td></tr>
         <tr><td>Intent check</td><td>Same embedding, compared with example phrases</td><td>Worker</td><td>Submit, rules unsure</td><td class="num"><span class="tag semantic">0 extra</span></td></tr>
         <tr><td>Pantry workflows</td><td>Optional LLM summary</td><td>Workers AI</td><td>Task matches a workflow</td><td class="num"><span class="tag llm">0-1 LLM</span></td></tr>
         <tr><td>Assistant</td><td>LLM: granite-4.0-h-micro, with parser hints (8 neurons per task)</td><td>Workers AI via AI Gateway</td><td>Task words or low confidence</td><td class="num"><span class="tag llm">2-5 LLM</span></td></tr>
@@ -333,7 +334,8 @@ footer { font-size: 13px; color: var(--muted); }
       <tbody>
         <tr><td>App shell (HTML, JS, CSS)</td><td>Pages CDN</td><td class="num">≈ 150 KB gz</td><td>Until next deploy</td></tr>
         <tr><td>Catalog metadata and dictionaries</td><td>Pages, then browser memory</td><td class="num">≈ 500 KB gz</td><td>HTTP cache</td></tr>
-        <tr><td>Catalog vectors (10k × 384)</td><td>Vectorize</td><td class="num">3.84M dims</td><td>Until reseeded</td></tr>
+        <tr><td>Search vectors (10k × 384, 8-bit)</td><td>Pages, then browser memory</td><td class="num">3.84 MB</td><td>HTTP cache</td></tr>
+        <tr><td>Story text (overview, tagline, keywords)</td><td>Pages, 64 files, fetched on demand</td><td class="num">≈ 5 MB total</td><td>HTTP cache</td></tr>
         <tr><td>Watched list, ratings, pantry, shopping list</td><td>localStorage</td><td class="num">&lt; 50 KB, capped</td><td>Per browser. Safari can clear it after 7 days without a visit.</td></tr>
         <tr><td>Assistant conversation</td><td>Browser memory</td><td class="num">Small</td><td>Until the tab closes</td></tr>
         <tr><td>Model name, token limits, rate limits</td><td>Worker config</td><td class="num">n/a</td><td>Server only. The client cannot change them.</td></tr>
@@ -348,7 +350,7 @@ footer { font-size: 13px; color: var(--muted); }
         <tr><td>Pages</td><td>Unlimited static requests</td><td>App shell and catalog files</td></tr>
         <tr><td>Workers / Functions</td><td class="num">100k requests/day</td><td>Submits only. Typing makes no requests.</td></tr>
         <tr><td>Workers AI</td><td class="num">10k neurons/day</td><td>Mostly assistant LLM calls. Measure in the spike.</td></tr>
-        <tr><td>Vectorize</td><td class="num">≈ 5M stored dims, ≈ 30M queried dims/month</td><td>3.84M stored. Tens of thousands of queries/month.</td></tr>
+        <tr><td>Vectorize</td><td class="num">Not used</td><td>Search vectors are static files. No storage or query limits apply.</td></tr>
       </tbody>
     </table>
   </div>
@@ -378,12 +380,11 @@ footer { font-size: 13px; color: var(--muted); }
     └── web/               <span class="c"># one Cloudflare Pages project</span>
         ├── src/           <span class="c"># Vite + React: chip UI, localStorage, movie tools</span>
         ├── functions/api/movies/
-        │   ├── search.ts  <span class="c"># embed + Vectorize query</span>
-        │   ├── details.ts <span class="c"># overview, tagline, keywords</span>
+        │   ├── embed.ts   <span class="c"># query text to vector (Workers AI)</span>
         │   └── chat.ts    <span class="c"># fixed model and tools, via AI Gateway</span>
         ├── server/        <span class="c"># shared server code</span>
         └── scripts/
-            ├── seed.ts    <span class="c"># TMDB to catalog files and vectors</span>
+            ├── seed.ts    <span class="c"># TMDB to catalog, vector and story files</span>
             └── compare-models.ts</pre>
 </section>
 
@@ -396,7 +397,7 @@ footer { font-size: 13px; color: var(--muted); }
     <li><span class="st next">Next</span><span>Latency and quota spike: one Pages Function, 100 seed items. Log time per step and neurons per assistant request.</span></li>
     <li><span class="st open">Done</span><span>LLM chosen: granite-4.0-h-micro with parser hints. See Model selection.</span></li>
     <li><span class="st open">Open</span><span>Catalog source and license. TMDB requires attribution. IMDb datasets are non-commercial only.</span></li>
-    <li><span class="st open">Open</span><span>Verify Vectorize free limits and whether metadata filters work on array fields.</span></li>
+    <li><span class="st open">Done</span><span>Vectorize replaced by static 8-bit vectors in the browser. Same rankings as full precision on 20 test queries.</span></li>
     <li><span class="st open">Open</span><span>Define pantry dictionaries (ingredients, diets, cuisines) and its workflows.</span></li>
   </ul>
 </section>
@@ -415,25 +416,24 @@ footer { font-size: 13px; color: var(--muted); }
       { from: 0, to: 1, label: "GET app shell (HTML, JS, CSS)", meta: "≈ 150 KB gz" },
       { from: 1, to: 0, label: "Static files from CDN cache", meta: "Pages" },
       { self: 0, label: "Render UI. Read watched list and pantry from localStorage.", meta: "< 5 ms" },
-      { from: 0, to: 1, label: "GET catalog-meta.json + dictionaries.json, after first paint", meta: "≈ 500 KB gz" },
+      { from: 0, to: 1, label: "GET catalog-meta.json, synopses and catalog-vectors.bin, after first paint", meta: "≈ 5 MB at 10k" },
       { self: 0, label: "Build in-memory index and rule dictionaries", meta: "≈ 20-50 ms" } ] },
     { id: "typing", tab: "While typing", total: "No network · 0 AI calls", steps: [
       { self: 0, label: "Tokenize and match rules. Update chips.", meta: "< 1 ms per keystroke" },
       { self: 0, label: "Choose route from leftover words and task words", meta: "< 1 ms" },
       { self: 0, label: "Filter metadata. Show live top 10.", meta: "150 ms debounce" } ] },
-    { id: "search", tab: "Submit: search", total: "≈ 0.1-0.3 s · 1 embedding · 0 LLM", steps: [
-      { from: 0, to: 1, label: "POST /api/movies/search { text, ids? }", meta: "" },
-      { from: 1, to: 2, label: "Embed free text (bge-small, 384 dims)", meta: "20-100 ms" },
-      { from: 1, to: 2, label: "Vectorize query: top 20 with filters", meta: "20-100 ms" },
-      { from: 1, to: 0, label: "IDs and scores", meta: "" },
-      { self: 0, label: "Remove watched IDs. Show top 10.", meta: "< 5 ms" } ] },
+    { id: "search", tab: "Submit: search", total: "≈ 0.1-0.15 s · 1 embedding · 0 LLM", steps: [
+      { from: 0, to: 1, label: "POST /api/movies/embed { text }", meta: "" },
+      { from: 1, to: 2, label: "Embed free text (bge-small, 384 dims)", meta: "≈ 100 ms" },
+      { from: 1, to: 0, label: "Query vector", meta: "" },
+      { self: 0, label: "Filter metadata, rank by 8-bit vectors, remove watched. Show top 10.", meta: "< 2 ms at 500 movies" } ] },
     { id: "assistant", tab: "Submit: assistant", total: "≈ 3-7 s · 2-5 LLM calls", steps: [
       { self: 0, label: "Harness starts the loop. Limit: 5 iterations.", meta: "" },
       { from: 0, to: 1, label: "POST /api/movies/chat (messages; server adds tools)", meta: "" },
       { from: 1, to: 2, label: "LLM via AI Gateway: fixed model, max_tokens, rate limit", meta: "0.5-1.5 s" },
       { from: 1, to: 0, label: "Proposed tool call", meta: "" },
       { self: 0, label: "Validate arguments. On error, send the error back to the LLM.", meta: "+1-2 s per retry" },
-      { from: 0, to: 2, label: "Tool: /api/movies/search (embed + Vectorize)", meta: "0.1-0.3 s" },
+      { from: 0, to: 2, label: "Tool: search_movies (embed on server, rank in browser)", meta: "≈ 0.1 s" },
       { self: 0, label: "Tool: read watched list from localStorage", meta: "< 1 ms" },
       { from: 0, to: 2, label: "Final LLM call. Answer streams to the UI.", meta: "2-5 s" } ] }
   ];
@@ -442,7 +442,7 @@ footer { font-size: 13px; color: var(--muted); }
     var f = FLOWS.filter(function (x) { return x.id === id; })[0];
     Array.prototype.forEach.call(tabs.children, function (b) { b.setAttribute("aria-selected", b.getAttribute("data-id") === id ? "true" : "false"); });
     var h = '<div class="seq-inner"><div class="seq-total"><span>' + f.tab + "</span><span>" + f.total + "</span></div>" +
-      '<div class="lanes"><div>Browser<span>React app, harness</span></div><div>Cloudflare edge<span>Pages, Functions</span></div><div>AI and vectors<span>Workers AI, Vectorize</span></div></div><div class="steps">';
+      '<div class="lanes"><div>Browser<span>React app, harness</span></div><div>Cloudflare edge<span>Pages, Functions</span></div><div>AI<span>Workers AI, AI Gateway</span></div></div><div class="steps">';
     f.steps.forEach(function (s, i) {
       var n = '<span class="n">' + (i + 1) + ".</span>", meta = s.meta ? '<span class="meta">' + s.meta + "</span>" : "";
       if (s.self !== undefined) {

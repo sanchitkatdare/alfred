@@ -2,6 +2,7 @@ import { fromOpenAIResponse, toOpenAIMessages, toOpenAITools, type ChatMessage, 
 import { z } from "zod";
 import { movieToolSpecs } from "../src/movies/tools";
 import type { Env } from "./env";
+import { LIMITS } from "./http";
 import { createTimer } from "./timing";
 
 /** Chosen by the model comparison (docs/architecture.html, Model selection). Needs parser hints. The client cannot change it. */
@@ -25,19 +26,31 @@ export function movieSystemPrompt(today = new Date()): string {
 }
 
 const toolCallSchema = z.object({ id: z.string().max(100), name: z.string().max(64), arguments: z.unknown() });
-export const chatRequestSchema = z.object({
-  messages: z
-    .array(
-      z.object({
-        role: z.enum(["user", "assistant", "tool"]),
-        content: z.string().max(8000),
-        toolCalls: z.array(toolCallSchema).max(5).optional(),
-        toolCallId: z.string().max(100).optional(),
-      }),
-    )
-    .min(1)
-    .max(30),
-});
+const ROLE_LIMITS = { user: LIMITS.userMessageChars, assistant: LIMITS.assistantMessageChars, tool: LIMITS.toolMessageChars } as const;
+
+export const chatRequestSchema = z
+  .object({
+    messages: z
+      .array(
+        z
+          .object({
+            role: z.enum(["user", "assistant", "tool"]),
+            content: z.string(),
+            toolCalls: z.array(toolCallSchema).max(5).optional(),
+            toolCallId: z.string().max(100).optional(),
+          })
+          .superRefine((m, ctx) => {
+            const max = ROLE_LIMITS[m.role];
+            if (m.content.length > max) ctx.addIssue({ code: "custom", message: `${m.role} message is longer than ${max} characters`, path: ["content"] });
+          }),
+      )
+      .min(1)
+      .max(LIMITS.messages),
+  })
+  .refine(
+    (r) => r.messages.reduce((n, m) => n + m.content.length + JSON.stringify(m.toolCalls ?? "").length, 0) <= LIMITS.conversationChars,
+    { message: `Conversation is longer than ${LIMITS.conversationChars} characters. Start a new one.` },
+  );
 
 export interface ChatResult extends LLMResponse {
   timings: Record<string, number>;

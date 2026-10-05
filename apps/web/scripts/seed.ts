@@ -1,21 +1,30 @@
 /**
- * Builds the movie catalog from TMDB and seeds Vectorize.
+ * Builds the movie catalog from TMDB as static files for the browser.
  *
- *   pnpm seed --count 500            # files + vectors
- *   pnpm seed --count 500 --dry-run  # files only, no Workers AI or Vectorize calls
+ *   pnpm seed --count 500            # all files, including search vectors
+ *   pnpm seed --count 500 --dry-run  # all files except vectors; no Workers AI calls
  *
  * Selection (docs/PLAN.md): about 85% by vote count, about 15% recent releases (last 2 years,
  * at least 100 votes) by popularity. Adult titles and runtimes under 60 minutes are excluded.
  *
- * Writes public/data/catalog-meta.json and public/data/catalog-synopses.json.
+ * Writes to public/data/:
+ *   catalog-meta.json      movie metadata
+ *   catalog-synopses.json  short synopses for result lists
+ *   catalog-vectors.bin    8-bit search vectors, in catalog-meta.json order (see src/movies/vectors.ts)
+ *   stories/<n>.json       overview, tagline and keywords for get_movie_details (see src/movies/stories.ts)
+ *
+ * Embeddings are cached in .cache/embeddings.json by text hash, so a re-run embeds only new or changed movies.
  * Needs TMDB_TOKEN (TMDB API Read Access Token) in the repo-root .env, and a Wrangler login
  * with ai:write, workers:write and workers_scripts:write.
  */
-import { writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { getPlatformProxy } from "wrangler";
 import { EMBEDDING_DIMENSIONS, EMBEDDING_MODEL, type Env } from "../server/env.ts";
 import type { CatalogMeta } from "../src/movies/catalog.ts";
+import { STORY_SHARDS, storyShardOf, type StoryShard } from "../src/movies/stories.ts";
+import { quantize, VECTOR_DIMENSIONS, VECTOR_FILE_BUDGET_BYTES } from "../src/movies/vectors.ts";
 
 const { values: args } = parseArgs({
   options: { count: { type: "string", default: "500" }, "dry-run": { type: "boolean", default: false } },
@@ -27,7 +36,7 @@ const PAGE_SIZE = 20;
 const SYNOPSIS_CHARS = 160;
 const TOP_CAST = 4;
 const EMBED_BATCH = 50;
-const UPSERT_BATCH = 100;
+const CACHE_FILE = ".cache/embeddings.json";
 const DETAIL_CONCURRENCY = 8;
 
 const TMDB = "https://api.themoviedb.org/3";
@@ -106,8 +115,22 @@ function embeddingText(d: MovieDetails): string {
     .join(" ");
 }
 
-function storyMetadata(d: MovieDetails): Record<string, string> {
+function story(d: MovieDetails): StoryShard[string] {
   return { overview: d.overview, tagline: d.tagline, keywords: d.keywords.keywords.map((k) => k.name).join(", ") };
+}
+
+/** Embedding cache: id -> hash of model and text, plus the float vector as base64. */
+type EmbeddingCache = Record<string, { hash: string; vector: string }>;
+const textHash = (text: string) => createHash("sha256").update(`${EMBEDDING_MODEL}\n${text}`).digest("hex").slice(0, 16);
+const encodeVector = (v: number[]) => Buffer.from(new Float32Array(v).buffer).toString("base64");
+const decodeVector = (s: string) => Array.from(new Float32Array(Uint8Array.from(Buffer.from(s, "base64")).buffer));
+
+async function readCache(): Promise<EmbeddingCache> {
+  try {
+    return JSON.parse(await readFile(CACHE_FILE, "utf8")) as EmbeddingCache;
+  } catch {
+    return {};
+  }
 }
 
 const chunk = <T,>(items: T[], size: number) => Array.from({ length: Math.ceil(items.length / size) }, (_, i) => items.slice(i * size, (i + 1) * size));
@@ -164,32 +187,48 @@ async function main() {
       .sort((a, b) => b[1] - a[1]).slice(0, 8).map(([l, n]) => `${l} ${((n / movies.length) * 100).toFixed(0)}%`);
     console.log(`  Languages: ${languages.join(", ")}`);
 
+    await rm("public/data/stories", { recursive: true, force: true });
+    await mkdir("public/data/stories", { recursive: true });
+    const shards: StoryShard[] = Array.from({ length: STORY_SHARDS }, () => ({}));
+    for (const d of details) shards[storyShardOf(d.id)]![d.id] = story(d);
+    await Promise.all(shards.map((shard, n) => writeFile(`public/data/stories/${n}.json`, JSON.stringify(shard))));
+    lap(`Wrote ${STORY_SHARDS} story files`);
+
     if (DRY_RUN) {
-      console.log("Dry run: skipped embeddings and Vectorize.");
+      console.log("Dry run: skipped embeddings and catalog-vectors.bin.");
       return;
     }
 
-    // Workers AI and Vectorize are reached through Wrangler's remote bindings (your Wrangler login).
-    const proxy = await getPlatformProxy<Env>({ configPath: "wrangler.jsonc" });
-    const env = proxy.env;
-    try {
-      const texts = details.map(embeddingText);
-      const approxTokens = Math.round(texts.join(" ").length / 4);
-      const vectors: number[][] = [];
-      for (const batch of chunk(texts, EMBED_BATCH)) {
-        const out = (await env.AI.run(EMBEDDING_MODEL, { text: batch })) as { data: number[][] };
-        vectors.push(...out.data);
+    const cache = await readCache();
+    const texts = details.map(embeddingText);
+    const hashes = texts.map(textHash);
+    const missing = details.map((d, i) => i).filter((i) => cache[details[i]!.id]?.hash !== hashes[i]);
+    if (missing.length) {
+      // Workers AI is reached through Wrangler's remote binding (your Wrangler login).
+      const proxy = await getPlatformProxy<Env>({ configPath: "wrangler.jsonc" });
+      try {
+        for (const batch of chunk(missing, EMBED_BATCH)) {
+          const out = (await proxy.env.AI.run(EMBEDDING_MODEL, { text: batch.map((i) => texts[i]!) })) as { data: number[][] };
+          if (out.data[0]?.length !== EMBEDDING_DIMENSIONS) throw new Error(`Expected ${EMBEDDING_DIMENSIONS} dimensions, got ${out.data[0]?.length}`);
+          batch.forEach((i, k) => (cache[details[i]!.id] = { hash: hashes[i]!, vector: encodeVector(out.data[k]!) }));
+        }
+      } finally {
+        await proxy.dispose();
       }
-      if (vectors[0]?.length !== EMBEDDING_DIMENSIONS) throw new Error(`Expected ${EMBEDDING_DIMENSIONS} dimensions, got ${vectors[0]?.length}`);
-      lap(`Embedded ${vectors.length} texts, about ${approxTokens} tokens, about ${Math.ceil((approxTokens / 1e6) * 1841)} neurons (estimate)`);
-
-      // Story text for the assistant's get_movie_details tool. Vectorize allows 10 KiB of metadata per vector.
-      const records = details.map((d, i) => ({ id: String(d.id), values: vectors[i]!, metadata: storyMetadata(d) }));
-      for (const batch of chunk(records, UPSERT_BATCH)) await env.VECTORIZE_MOVIES.upsert(batch);
-      lap(`Upserted ${records.length} vectors into alfred-movies-v1`);
-    } finally {
-      await proxy.dispose();
     }
+    const kept: EmbeddingCache = Object.fromEntries(details.map((d) => [d.id, cache[d.id]!]));
+    await mkdir(".cache", { recursive: true });
+    await writeFile(CACHE_FILE, JSON.stringify(kept));
+    const approxTokens = Math.round(missing.map((i) => texts[i]!).join(" ").length / 4);
+    lap(`Embeddings: ${details.length - missing.length} reused from cache, ${missing.length} new (about ${approxTokens} tokens, about ${Math.ceil((approxTokens / 1e6) * 1841)} neurons, estimate)`);
+
+    const rows = new Int8Array(details.length * VECTOR_DIMENSIONS);
+    details.forEach((d, r) => rows.set(quantize(decodeVector(kept[d.id]!.vector)), r * VECTOR_DIMENSIONS));
+    if (rows.byteLength > VECTOR_FILE_BUDGET_BYTES) {
+      throw new Error(`catalog-vectors.bin would be ${rows.byteLength} bytes, over the ${VECTOR_FILE_BUDGET_BYTES}-byte budget. Lower --count.`);
+    }
+    await writeFile("public/data/catalog-vectors.bin", rows);
+    lap(`Wrote catalog-vectors.bin (${(rows.byteLength / 1e6).toFixed(2)} MB of ${(VECTOR_FILE_BUDGET_BYTES / 1e6).toFixed(1)} MB budget)`);
   }
 }
 
