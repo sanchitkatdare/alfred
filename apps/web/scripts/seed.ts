@@ -8,9 +8,10 @@
  * at least 100 votes) by popularity. Adult titles and runtimes under 60 minutes are excluded.
  *
  * Writes to public/data/:
- *   catalog-meta.json      movie metadata
- *   catalog-synopses.json  short synopses for result lists
- *   catalog-vectors.bin    8-bit search vectors, in catalog-meta.json order (see src/movies/vectors.ts)
+ *   catalog-meta.json              movie metadata; names the matching vector file (written last)
+ *   catalog-synopses.json          short synopses for result lists
+ *   catalog-vectors.<hash>.bin     8-bit search vectors, in catalog-meta.json order (see src/movies/vectors.ts).
+ *                                  The hash in the name keeps metadata and vectors in step when browsers cache old files.
  *   stories/<n>.json       overview, tagline and keywords for get_movie_details (see src/movies/stories.ts)
  *
  * Embeddings are cached in .cache/embeddings.json by text hash, so a re-run embeds only new or changed movies.
@@ -18,7 +19,7 @@
  * with ai:write, workers:write and workers_scripts:write.
  */
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { getPlatformProxy } from "wrangler";
 import { EMBEDDING_DIMENSIONS, EMBEDDING_MODEL, type Env } from "../server/env.ts";
@@ -40,6 +41,7 @@ const CACHE_FILE = ".cache/embeddings.json";
 const DETAIL_CONCURRENCY = 8;
 
 const TMDB = "https://api.themoviedb.org/3";
+const TMDB_TIMEOUT_MS = 15_000;
 
 interface DiscoverPage { results: { id: number }[]; total_pages: number }
 interface MovieDetails {
@@ -67,9 +69,20 @@ async function tmdb<T>(token: string, path: string, params: Record<string, strin
   const url = new URL(TMDB + path);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
   for (let attempt = 1; ; attempt++) {
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } });
+    let res: Response;
+    try {
+      // A stalled connection would otherwise hang the seed forever.
+      res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, signal: AbortSignal.timeout(TMDB_TIMEOUT_MS) });
+    } catch (e) {
+      if (attempt <= 5) {
+        console.log(`  TMDB ${path}: ${e instanceof Error ? e.message : e}. Retrying (${attempt}/5).`);
+        await sleep(1000 * attempt);
+        continue;
+      }
+      throw e;
+    }
     if (res.ok) return (await res.json()) as T;
-    if (res.status === 429 && attempt <= 5) {
+    if ((res.status === 429 || res.status >= 500) && attempt <= 5) {
       await sleep(1000 * Number(res.headers.get("retry-after") ?? attempt));
       continue;
     }
@@ -190,11 +203,14 @@ async function main() {
     }));
     const meta: CatalogMeta = { generatedAt: new Date().toISOString(), source: "TMDB", people, movies };
     const synopses = Object.fromEntries(details.map((d) => [d.id, synopsis(d.overview)]));
-    const metaJson = JSON.stringify(meta);
     const synopsesJson = JSON.stringify(synopses);
-    await writeFile("public/data/catalog-meta.json", metaJson);
     await writeFile("public/data/catalog-synopses.json", synopsesJson);
-    lap(`Wrote catalog-meta.json (${(metaJson.length / 1024).toFixed(0)} KB) and catalog-synopses.json (${(synopsesJson.length / 1024).toFixed(0)} KB)`);
+    lap(`Wrote catalog-synopses.json (${(synopsesJson.length / 1024).toFixed(0)} KB)`);
+    const writeMeta = async () => {
+      const metaJson = JSON.stringify(meta);
+      await writeFile("public/data/catalog-meta.json", metaJson);
+      lap(`Wrote catalog-meta.json (${(metaJson.length / 1024).toFixed(0)} KB)${meta.vectors ? `, vectors: ${meta.vectors.file}` : ", no vectors"}`);
+    };
 
     const languages = Object.entries(movies.reduce<Record<string, number>>((acc, m) => ({ ...acc, [m.language ?? "?"]: (acc[m.language ?? "?"] ?? 0) + 1 }), {}))
       .sort((a, b) => b[1] - a[1]).slice(0, 8).map(([l, n]) => `${l} ${((n / movies.length) * 100).toFixed(0)}%`);
@@ -208,7 +224,8 @@ async function main() {
     lap(`Wrote ${STORY_SHARDS} story files`);
 
     if (DRY_RUN) {
-      console.log("Dry run: skipped embeddings and catalog-vectors.bin.");
+      await writeMeta();
+      console.log("Dry run: skipped embeddings and the vector file. Search needs a full run.");
       return;
     }
 
@@ -243,10 +260,14 @@ async function main() {
     const rows = new Int8Array(details.length * VECTOR_DIMENSIONS);
     details.forEach((d, r) => rows.set(quantize(decodeVector(kept[d.id]!.vector)), r * VECTOR_DIMENSIONS));
     if (rows.byteLength > VECTOR_FILE_BUDGET_BYTES) {
-      throw new Error(`catalog-vectors.bin would be ${rows.byteLength} bytes, over the ${VECTOR_FILE_BUDGET_BYTES}-byte budget. Lower --count.`);
+      throw new Error(`The vector file would be ${rows.byteLength} bytes, over the ${VECTOR_FILE_BUDGET_BYTES}-byte budget. Lower --count.`);
     }
-    await writeFile("public/data/catalog-vectors.bin", rows);
-    lap(`Wrote catalog-vectors.bin (${(rows.byteLength / 1e6).toFixed(2)} MB of ${(VECTOR_FILE_BUDGET_BYTES / 1e6).toFixed(1)} MB budget)`);
+    const vectorFile = `catalog-vectors.${createHash("sha256").update(rows).digest("hex").slice(0, 12)}.bin`;
+    for (const old of (await readdir("public/data")).filter((f) => /^catalog-vectors(\..+)?\.bin$/.test(f))) await rm(`public/data/${old}`);
+    await writeFile(`public/data/${vectorFile}`, rows);
+    lap(`Wrote ${vectorFile} (${(rows.byteLength / 1e6).toFixed(2)} MB of ${(VECTOR_FILE_BUDGET_BYTES / 1e6).toFixed(1)} MB budget)`);
+    meta.vectors = { file: vectorFile, dimensions: VECTOR_DIMENSIONS };
+    await writeMeta();
   }
 }
 

@@ -1,20 +1,26 @@
-import { decideRoute, parse, type Chip, type ParserConfig, type Route } from "@alfred/agent-harness";
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { hydrateCatalog, type CatalogMeta, type Movie } from "./catalog";
+import { decideRoute, parse, type ChatMessage, type Chip, type ParserConfig, type Route } from "@alfred/agent-harness";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import tmdbLogo from "../../../../assets/tmdb.svg";
+import { createEmbedClient } from "./api";
+import { AssistantPanel, describeEvent, type Turn } from "./AssistantPanel";
+import { createMovieAssistant } from "./assistant";
+import type { CatalogMeta, Movie } from "./catalog";
 import { buildMovieParserConfig, MOVIE_ROUTER_OPTIONS } from "./config";
+import { loadCatalog, loadStories, loadSynopses, loadVectors } from "./data";
 import { chipsToSearchHints } from "./hints";
 import { byRating, filterCatalog } from "./tools";
 import { useWatched } from "./useWatched";
+import { rankByVector, vectorOf, type VectorIndex } from "./vectors";
+
+const MAX_QUERY_CHARS = 300;
 
 const EXAMPLES = [
   "a jennifer lawrence action movie",
   "movie with deNiro and pacino",
   "like inception but not sci-fi, under 2 hours",
-  "movie above 7 that does not have horror",
-  "crime without de niro, at least 2 hours",
   "mind-bending villeneuve film",
-  "hemsworth action",
-  "jenifer lawrance comedy",
+  "the one where a man tattoos clues on his body",
+  "movie above 7 that does not have horror",
   "plan a movie night for me and a friend who hates horror",
 ];
 
@@ -24,26 +30,66 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 const ROUTES: Record<Route, { name: string; cost: string; detail: string }> = {
-  local: { name: "Local filter", cost: "0 AI calls · no network · < 10 ms", detail: "Rules matched every word. The browser filters the catalog. This list is the final result." },
-  semantic: { name: "Semantic search", cost: "1 embedding · 0 LLM · ≈ 0.1-0.3 s", detail: "On submit, the server embeds the free text and searches vectors, with the chips as filters. Not connected yet." },
-  assistant: { name: "Assistant", cost: "2-5 LLM calls · ≈ 3-7 s", detail: "A task needs the agent loop. The movies below go to the assistant as tool output. Not connected yet." },
+  local: { name: "Local filter", cost: "0 AI calls · no network", detail: "Rules matched every word. The list below updates as you type." },
+  semantic: { name: "Search by meaning", cost: "1 embedding · 0 LLM · ≈ 0.1 s", detail: "Press Enter: the server turns the free text into a vector, and your browser ranks the filtered movies by meaning." },
+  assistant: { name: "Assistant", cost: "2-5 LLM calls · ≈ 5-10 s", detail: "Press Enter: the assistant searches, reads and decides in up to 5 steps. You see each step." },
   empty: { name: "Waiting for input", cost: "", detail: "Type a request or pick an example." },
 };
 
 const formatRuntime = (min: number) => `${Math.floor(min / 60)}h${min % 60 ? ` ${min % 60}m` : ""}`;
 
-function MovieSearch({ catalog, config }: { catalog: Movie[]; config: ParserConfig }) {
+/** Adds two vectors after scaling each to length 1, so a movie and a phrase count equally. */
+function blend(a: ArrayLike<number>, b: ArrayLike<number>): number[] {
+  const norm = (v: ArrayLike<number>) => Math.sqrt(Array.from(v).reduce((s, x) => s + x * x, 0)) || 1;
+  const na = norm(a), nb = norm(b);
+  return Array.from(a, (x, i) => x / na + b[i]! / nb);
+}
+
+interface SemanticResult {
+  query: string;
+  movies: Movie[];
+  ms: number;
+}
+
+function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Movie[]; config: ParserConfig }) {
   const [query, setQuery] = useState(EXAMPLES[2]!);
   const [removed, setRemoved] = useState<ReadonlySet<string>>(new Set());
-  const { watched, markWatched, clear } = useWatched();
+  const { watched, getWatched, markWatched, clear } = useWatched();
   const inputRef = useRef<HTMLInputElement>(null);
   const seenSigs = useRef<Set<string>>(new Set());
+  const byId = useMemo(() => new Map(catalog.map((m) => [m.id, m])), [catalog]);
+
+  // Search data loads after the page appears, so typing and filters work first.
+  const vectorsRef = useRef<Promise<VectorIndex> | null>(null);
+  const getVectors = useCallback(() => {
+    if (!vectorsRef.current) {
+      const p = loadVectors(meta);
+      vectorsRef.current = p;
+      p.catch(() => vectorsRef.current === p && (vectorsRef.current = null));
+    }
+    return vectorsRef.current;
+  }, [meta]);
+  const [synopses, setSynopses] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const t = setTimeout(() => {
+      getVectors().catch(() => {});
+      loadSynopses().then(setSynopses).catch(() => {});
+    }, 300);
+    return () => clearTimeout(t);
+  }, [getVectors]);
+
+  const embed = useMemo(() => createEmbedClient(), []);
+  const search = useCallback(async (text: string, ids: number[]) => rankByVector(await getVectors(), await embed(text), ids), [embed, getVectors]);
+  const ask = useMemo(
+    () => createMovieAssistant({ catalog, getWatched, markWatched, search, details: loadStories }),
+    [catalog, getWatched, markWatched, search],
+  );
 
   const parsed = useMemo(() => parse(query, config), [query, config]);
   const chips = parsed.chips.filter((c) => !removed.has(c.sig));
   const decision = decideRoute({ chips, leftover: parsed.leftover }, MOVIE_ROUTER_OPTIONS);
   const deferredChips = useDeferredValue(chips);
-  const result = useMemo(() => {
+  const live = useMemo(() => {
     // Same filter as the assistant's search_movies: chips become hard filters.
     const all = filterCatalog(catalog, { ...chipsToSearchHints(deferredChips), includeWatched: true }, watched).sort(byRating);
     const movies = all.filter((m) => !watched.has(m.id));
@@ -53,8 +99,73 @@ function MovieSearch({ catalog, config }: { catalog: Movie[]; config: ParserConf
   const fresh = new Set(chips.filter((c) => !seenSigs.current.has(c.sig)).map((c) => c.sig));
   seenSigs.current = new Set(chips.map((c) => c.sig));
 
+  // Search by meaning
+  const [semantic, setSemantic] = useState<SemanticResult | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const runSearch = async () => {
+    setSearching(true);
+    setSearchError(null);
+    const started = performance.now();
+    try {
+      const similar = chips.find((c) => c.kind === "similar");
+      const similarId = similar ? Number(similar.id) : null;
+      const text = parsed.leftover.join(" ");
+      const index = await getVectors();
+      const movieVector = similarId !== null ? vectorOf(index, similarId) : null;
+      const textVector = text ? await embed(text) : null;
+      const queryVector = textVector && movieVector ? blend(textVector, movieVector) : (textVector ?? movieVector);
+      if (!queryVector) return;
+      const ids = filterCatalog(catalog, chipsToSearchHints(chips), watched).map((m) => m.id).filter((id) => id !== similarId);
+      const ranked = rankByVector(index, queryVector, ids, 10);
+      setSemantic({ query, movies: ranked.map((r) => byId.get(r.id)!), ms: Math.round(performance.now() - started) });
+    } catch (e) {
+      setSearchError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  // Assistant
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const history = useRef<ChatMessage[]>([]);
+  const abort = useRef<AbortController | null>(null);
+  const running = turns.at(-1)?.status === "running";
+  const runAssistant = async () => {
+    const question = query.trim();
+    if (!question) return;
+    const turnIndex = turns.length;
+    const update = (change: (t: Turn) => Turn) => setTurns((all) => all.map((t, i) => (i === turnIndex ? change(t) : t)));
+    setTurns((all) => [...all, { question, steps: [], status: "running" }]);
+    abort.current = new AbortController();
+    try {
+      const result = await ask(question, {
+        history: history.current,
+        hints: chipsToSearchHints(chips),
+        signal: abort.current.signal,
+        onEvent: (e) => {
+          const step = describeEvent(e);
+          if (step) update((t) => ({ ...t, steps: [...t.steps, step] }));
+        },
+      });
+      if (result.status === "done") {
+        history.current = result.transcript.filter((m) => m.role !== "system");
+        update((t) => ({ ...t, status: "done", answer: result.message?.content || "(no answer)" }));
+      } else {
+        const error = result.status === "limit_reached" ? "The assistant ran out of steps. Try a more specific question." : (result.error ?? "The assistant failed.");
+        update((t) => ({ ...t, status: "failed", error: error === "Aborted" ? "Stopped." : error }));
+      }
+    } catch (e) {
+      update((t) => ({ ...t, status: "failed", error: e instanceof Error ? e.message : String(e) }));
+    }
+  };
+  const resetConversation = () => {
+    history.current = [];
+    setTurns([]);
+  };
+
   const setText = (text: string) => {
-    setQuery(text);
+    setQuery(text.slice(0, MAX_QUERY_CHARS));
     setRemoved(new Set());
   };
   const removeChip = (chip: Chip) => {
@@ -68,8 +179,17 @@ function MovieSearch({ catalog, config }: { catalog: Movie[]; config: ParserConf
     setText(query.replace(new RegExp(`${escaped}\\s*$`, "i"), `${s.to} `));
     inputRef.current?.focus();
   };
+  const busy = searching || running;
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    if (busy) return;
+    if (decision.route === "assistant") void runAssistant();
+    else if (decision.route === "semantic") void runSearch();
+  };
 
   const route = ROUTES[decision.route];
+  const showSemantic = semantic && semantic.query === query;
+  const shown = showSemantic ? semantic.movies.filter((m) => !watched.has(m.id)) : live.movies.slice(0, 10);
 
   return (
     <main className="page">
@@ -107,36 +227,49 @@ function MovieSearch({ catalog, config }: { catalog: Movie[]; config: ParserConf
           </div>
         </div>
 
-        <div className="qbox">
+        <form className="qbox" onSubmit={onSubmit}>
           <label htmlFor="q">Ask for a movie</label>
-          <input id="q" ref={inputRef} type="text" autoComplete="off" spellCheck={false} value={query} onChange={(e) => setText(e.target.value)} />
+          <div className="qrow">
+            <input id="q" ref={inputRef} type="text" autoComplete="off" spellCheck={false} maxLength={MAX_QUERY_CHARS} value={query} onChange={(e) => setText(e.target.value)} />
+            {decision.route === "semantic" && <button type="submit" className="btn" disabled={busy}>{searching ? "Searching…" : "Search"}</button>}
+            {decision.route !== "empty" && (
+              <button type={decision.route === "assistant" ? "submit" : "button"} className={`btn ${decision.route === "assistant" ? "" : "ghost"}`} disabled={busy} onClick={decision.route === "assistant" ? undefined : () => void runAssistant()}>
+                {running ? "Working…" : "Ask assistant"}
+              </button>
+            )}
+          </div>
+          {query.length >= MAX_QUERY_CHARS - 50 && <span className="note counter">{query.length}/{MAX_QUERY_CHARS} characters</span>}
           <div className="examples">
             <span className="eyebrow">Examples</span>
             {EXAMPLES.map((ex) => (
               <button key={ex} type="button" className="ex" onClick={() => setText(ex)}>{ex}</button>
             ))}
           </div>
-        </div>
+        </form>
+
+        <AssistantPanel turns={turns} running={running} onStop={() => abort.current?.abort()} onReset={resetConversation} />
 
         <div className="grid">
           <div className="panel">
             <div className="panel-head">
-              <h2>Results</h2>
-              <span className="note">{result.movies.length} of {catalog.length} match</span>
+              <h2>{showSemantic ? "Best matches by meaning" : "Results"}</h2>
+              <span className="note">{showSemantic ? `ranked in ${semantic.ms} ms` : `${live.movies.length} of ${catalog.length} match`}</span>
             </div>
+            {searchError && <p className="answer failed">{searchError}</p>}
             <ul className="results">
-              {result.movies.slice(0, 10).map((movie) => (
+              {shown.map((movie) => (
                 <li key={movie.id}>
                   <span className="t">{movie.title}</span>
                   <button type="button" className="w" onClick={() => markWatched(movie.id)}>Mark watched</button>
                   <span className="m">{movie.year} · {formatRuntime(movie.runtime)} · ★ {movie.rating.toFixed(1)} · {movie.genres.join(", ")}</span>
+                  {synopses[movie.id] && <span className="syn">{synopses[movie.id]}</span>}
                 </li>
               ))}
-              {!result.movies.length && <li><span className="empty">No sample movie matches these filters.</span></li>}
+              {!shown.length && <li><span className="empty">No movie matches these filters.</span></li>}
             </ul>
-            {(result.hiddenWatched > 0 || watched.size > 0) && (
+            {(live.hiddenWatched > 0 || watched.size > 0) && (
               <p className="note">
-                {result.hiddenWatched > 0 && `${result.hiddenWatched} hidden because you marked them watched. `}
+                {live.hiddenWatched > 0 && `${live.hiddenWatched} hidden because you marked them watched. `}
                 {watched.size > 0 && <button type="button" className="linkish" onClick={clear}>Clear watched list ({watched.size})</button>}
               </p>
             )}
@@ -156,26 +289,27 @@ function MovieSearch({ catalog, config }: { catalog: Movie[]; config: ParserConf
           </div>
         </div>
       </section>
+
+      <footer className="foot">
+        <p><img src={tmdbLogo} alt="TMDB" height={10} /> This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+        <p>Search text and assistant questions are sent to Cloudflare Workers AI. Your watched list stays in this browser.</p>
+      </footer>
     </main>
   );
 }
 
-type CatalogState = { status: "loading" } | { status: "missing" } | { status: "ready"; catalog: Movie[]; config: ParserConfig };
+type CatalogState = { status: "loading" } | { status: "missing" } | { status: "ready"; meta: CatalogMeta; catalog: Movie[]; config: ParserConfig };
 
 /** Loads the seeded catalog, then shows the search. */
 export function MoviesPage() {
   const [state, setState] = useState<CatalogState>({ status: "loading" });
   useEffect(() => {
-    fetch(`${import.meta.env.BASE_URL}data/catalog-meta.json`)
-      .then((r) => (r.ok ? (r.json() as Promise<CatalogMeta>) : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then((meta) => {
-        const catalog = hydrateCatalog(meta);
-        setState({ status: "ready", catalog, config: buildMovieParserConfig(catalog) });
-      })
+    loadCatalog()
+      .then(({ meta, catalog }) => setState({ status: "ready", meta, catalog, config: buildMovieParserConfig(catalog) }))
       .catch(() => setState({ status: "missing" }));
   }, []);
 
-  if (state.status === "ready") return <MovieSearch catalog={state.catalog} config={state.config} />;
+  if (state.status === "ready") return <MovieSearch meta={state.meta} catalog={state.catalog} config={state.config} />;
   return (
     <main className="page">
       <header className="head">

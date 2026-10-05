@@ -60,3 +60,9 @@ export function rankByVector(index: VectorIndex, query: ArrayLike<number>, candi
   });
   return scored.sort((a, b) => b.score - a.score).slice(0, limit);
 }
+
+/** A movie's own stored vector, for "like <movie>" searches without a server call. */
+export function vectorOf(index: VectorIndex, id: number): Int8Array | null {
+  const r = index.rowOf.get(id);
+  return r === undefined ? null : index.rows.subarray(r * VECTOR_DIMENSIONS, (r + 1) * VECTOR_DIMENSIONS);
+}

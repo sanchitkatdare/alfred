@@ -125,6 +125,22 @@ describe("agent loop", () => {
     expect(result).toMatchObject({ status: "failed", error: 'LLM provider "scripted" failed: quota exceeded' });
   });
 
+  it("cuts long tool results to the configured limit", async () => {
+    const { agent, provider } = setup([toolCalls(["search_catalog", { genre: "crime", limit: 10 }]), say("ok")], { maxToolResultChars: 60 });
+    await agent.run("x");
+    const toolMessage = lastToolMessage(provider);
+    expect(toolMessage).toHaveLength(60);
+    expect(toolMessage.endsWith("…[truncated]")).toBe(true);
+  });
+
+  it("places earlier turns between the system message and the new input", async () => {
+    const { agent, provider } = setup([say("Shorter: Heat is 170 min, try Memento.")]);
+    await agent.run("something shorter", { history: [{ role: "user", content: "a crime movie" }, { role: "assistant", content: "Try Heat." }] });
+    expect(provider.requests[0]!.messages.map((m) => `${m.role}:${m.content}`)).toEqual([
+      "system:You recommend movies.", "user:a crime movie", "assistant:Try Heat.", "user:something shorter",
+    ]);
+  });
+
   it("stops when aborted", async () => {
     const controller = new AbortController();
     const { agent } = setup([

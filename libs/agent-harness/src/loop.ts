@@ -15,7 +15,7 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** Runs the loop described in agent.ts. */
 export function createAgent(options: AgentOptions): Agent {
-  const { provider, tools, system, maxIterations, retry } = options;
+  const { provider, tools, system, maxIterations, retry, maxToolResultChars } = options;
   const emit = (event: AgentEvent) => options.onEvent?.(event);
 
   return {
@@ -23,12 +23,17 @@ export function createAgent(options: AgentOptions): Agent {
       const signal = runOptions.signal;
       const transcript: ChatMessage[] = [
         { role: "system", content: system },
+        ...(runOptions.history ?? []).filter((m) => m.role !== "system"),
         { role: "user", content: input },
       ];
       const cache = new Map<string, unknown>();
       let validationErrors = 0;
       const fail = (iterations: number, error: string): AgentResult => ({ status: "failed", transcript, iterations, error });
-      const reply = (call: ToolCall, content: string) => transcript.push({ role: "tool", toolCallId: call.id, content });
+      const TRUNCATED = "…[truncated]";
+      const reply = (call: ToolCall, content: string) => {
+        const fits = !maxToolResultChars || content.length <= maxToolResultChars;
+        transcript.push({ role: "tool", toolCallId: call.id, content: fits ? content : content.slice(0, maxToolResultChars - TRUNCATED.length) + TRUNCATED });
+      };
 
       for (let iteration = 1; iteration <= maxIterations; iteration++) {
         if (signal?.aborted) return fail(iteration - 1, "Aborted");

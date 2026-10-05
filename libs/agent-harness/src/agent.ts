@@ -100,6 +100,8 @@ export interface AgentOptions {
   system: string;
   maxIterations: number;
   retry: RetryPolicy;
+  /** Longest tool result sent back to the LLM. Longer results are cut and marked. Match the server's tool-message limit. */
+  maxToolResultChars?: number;
   /** For the decision trace in the UI. */
   onEvent?(event: AgentEvent): void;
 }
@@ -112,6 +114,12 @@ export interface AgentResult {
   error?: string;
 }
 
+export interface AgentRunOptions {
+  signal?: AbortSignal;
+  /** Earlier turns of the conversation (no system message). Placed before the new input. */
+  history?: ChatMessage[];
+}
+
 export interface Agent {
-  run(input: string, options?: { signal?: AbortSignal }): Promise<AgentResult>;
+  run(input: string, options?: AgentRunOptions): Promise<AgentResult>;
 }

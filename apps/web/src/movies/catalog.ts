@@ -19,6 +19,8 @@ export interface CatalogMeta {
   source: "TMDB";
   people: string[];
   movies: (Omit<Movie, "cast" | "directors"> & { cast: number[]; directors: number[] })[];
+  /** The vector file that matches this metadata, in the same movie order. Missing after a dry run. */
+  vectors?: { file: string; dimensions: number };
 }
 
 export function hydrateCatalog(meta: CatalogMeta): Movie[] {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createVectorIndex, quantize, rankByVector, VECTOR_DIMENSIONS } from "./vectors";
+import { createVectorIndex, quantize, rankByVector, VECTOR_DIMENSIONS, vectorOf } from "./vectors";
 
 const vec = (seed: number) => Array.from({ length: VECTOR_DIMENSIONS }, (_, i) => Math.sin(seed * 7.1 + i * 0.37));
 
@@ -33,6 +33,12 @@ describe("vector index", () => {
     rows.set(quantize(vec(3)), VECTOR_DIMENSIONS);
     const idx = createVectorIndex([1, 2], rows, [10, 50_000]);
     expect(rankByVector(idx, vec(3)).map((r) => r.id)).toEqual([2, 1]);
+  });
+
+  it("ranks by a movie's own vector, with that movie first", () => {
+    const idx = index([1, 2, 3, 4]);
+    expect(rankByVector(idx, vectorOf(idx, 20)!)[0]!.id).toBe(20);
+    expect(vectorOf(idx, 999)).toBeNull();
   });
 
   it("rejects a vector file that does not match the catalog", () => {

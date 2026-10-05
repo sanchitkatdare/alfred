@@ -75,8 +75,21 @@ export function filterCatalog(catalog: Movie[], a: SearchArgs, watched: Readonly
   );
 }
 
-/** Best first: rating, then vote count. */
-export const byRating = (x: Movie, y: Movie) => y.rating - x.rating || (y.votes ?? 0) - (x.votes ?? 0);
+/** Weighted-rating prior (IMDb style), from the 10k catalog on 2026-10-05: mean rating 6.66, median 992 votes. */
+const PRIOR_RATING = 6.7;
+const PRIOR_VOTES = 1_000;
+
+/**
+ * Rating pulled toward the catalog mean until a movie has enough votes, so a 9.1 from 425 votes
+ * does not outrank a 8.7 from 31,000. Movies without a vote count (test data) keep their raw rating.
+ */
+export function weightedRating(m: Movie): number {
+  if (m.votes === undefined) return m.rating;
+  return (m.votes * m.rating + PRIOR_VOTES * PRIOR_RATING) / (m.votes + PRIOR_VOTES);
+}
+
+/** Best first: weighted rating, then vote count. */
+export const byRating = (x: Movie, y: Movie) => weightedRating(y) - weightedRating(x) || (y.votes ?? 0) - (x.votes ?? 0);
 
 const summary = (m: Movie) => ({
   id: m.id, title: m.title, year: m.year, runtime: m.runtime, rating: m.rating,

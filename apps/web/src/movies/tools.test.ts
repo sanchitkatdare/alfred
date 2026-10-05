@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SAMPLE_CATALOG } from "./sample-catalog.fixture";
-import { createMovieTools, movieToolSpecs, type MovieToolContext } from "./tools";
+import { byRating, createMovieTools, movieToolSpecs, type MovieToolContext } from "./tools";
 
 function setup(watched: number[] = []) {
   const searches: { text: string; ids?: number[] }[] = [];
@@ -94,5 +94,14 @@ describe("search_movies with parser hints", () => {
     expect(filtered.movies.map((m: { title: string }) => m.title)).toEqual(["The Dark Knight"]);
     const byTitle = await run({ title: "inception" });
     expect(byTitle.movies.map((m: { title: string }) => m.title)).toEqual(["Inception"]);
+  });
+});
+
+describe("byRating", () => {
+  it("ranks a well-rated classic above a higher rating from few votes", () => {
+    const base = SAMPLE_CATALOG[0]!;
+    const fewVotes = { ...base, id: 1, title: "New release", rating: 9.1, votes: 425 };
+    const classic = { ...base, id: 2, title: "Classic", rating: 8.7, votes: 31_497 };
+    expect([fewVotes, classic].sort(byRating).map((m) => m.title)).toEqual(["Classic", "New release"]);
   });
 });

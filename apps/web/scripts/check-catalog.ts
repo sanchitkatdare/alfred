@@ -46,16 +46,17 @@ console.log(`Catalog: ${catalog.length} movies, ${meta.people.length} people, ge
 // 1. File sizes
 console.log("Files (raw / gzip):");
 let browserGzip = 0;
-for (const f of ["catalog-meta.json", "catalog-synopses.json", "catalog-vectors.bin"]) {
+if (!meta.vectors) throw new Error("catalog-meta.json names no vector file. Run the seed without --dry-run.");
+for (const f of ["catalog-meta.json", "catalog-synopses.json", meta.vectors.file]) {
   const buf = await readFile(`${DATA}/${f}`);
   const gz = gzipSync(buf).length;
   browserGzip += gz;
-  console.log(`  ${f.padEnd(24)} ${mb(buf.length).padStart(9)} / ${mb(gz)}`);
+  console.log(`  ${f.padEnd(34)} ${mb(buf.length).padStart(9)} / ${mb(gz)}`);
 }
 const storyFiles = await readdir(`${DATA}/stories`);
 const storySizes = await Promise.all(storyFiles.map(async (f) => (await stat(`${DATA}/stories/${f}`)).size));
 console.log(`  stories/ (${storyFiles.length} files)     ${mb(storySizes.reduce((a, b) => a + b, 0)).padStart(9)} total, largest ${(Math.max(...storySizes) / 1024).toFixed(0)} KB`);
-const vectorBytes = (await stat(`${DATA}/catalog-vectors.bin`)).size;
+const vectorBytes = (await stat(`${DATA}/${meta.vectors.file}`)).size;
 console.log(`  Browser download after first paint: ${mb(browserGzip)} gzip. Vector file ${((vectorBytes / VECTOR_FILE_BUDGET_BYTES) * 100).toFixed(0)}% of its budget.\n`);
 
 // 2. Parser
@@ -76,7 +77,7 @@ console.log(`Parser: dictionary built in ${buildMs.toFixed(0)} ms, ${config.dict
 console.log(`  Per keystroke: median ${median(perKey).toFixed(2)} ms, p99 ${p99(perKey).toFixed(2)} ms (${perKey.length} keystrokes).\n`);
 
 // 3. Ranking and search quality
-const index = createVectorIndex(meta.movies.map((m) => m.id), new Int8Array(await readFile(`${DATA}/catalog-vectors.bin`)), meta.movies.map((m) => m.votes ?? 0));
+const index = createVectorIndex(meta.movies.map((m) => m.id), new Int8Array(await readFile(`${DATA}/${meta.vectors.file}`)), meta.movies.map((m) => m.votes ?? 0));
 const titleOf = new Map(catalog.map((m) => [m.id, m.title]));
 const proxy = await getPlatformProxy<Env>({ configPath: "wrangler.jsonc" });
 const rankTimes: number[] = [];
