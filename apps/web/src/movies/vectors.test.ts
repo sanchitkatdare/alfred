@@ -27,6 +27,14 @@ describe("vector index", () => {
     expect(rankByVector(idx, vec(3), [10, 20]).map((r) => r.id).sort()).toEqual([10, 20]);
   });
 
+  it("lets popularity decide between near-identical matches", () => {
+    const rows = new Int8Array(2 * VECTOR_DIMENSIONS);
+    rows.set(quantize(vec(3)), 0);
+    rows.set(quantize(vec(3)), VECTOR_DIMENSIONS);
+    const idx = createVectorIndex([1, 2], rows, [10, 50_000]);
+    expect(rankByVector(idx, vec(3)).map((r) => r.id)).toEqual([2, 1]);
+  });
+
   it("rejects a vector file that does not match the catalog", () => {
     expect(() => createVectorIndex([1, 2], new Int8Array(VECTOR_DIMENSIONS))).toThrow(/Re-run the seed/);
   });

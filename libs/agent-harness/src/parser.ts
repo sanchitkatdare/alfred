@@ -1,5 +1,5 @@
 import type { Dictionary, DictEntry } from "./dictionary";
-import { levenshtein, toKey, tokenize } from "./text";
+import { levenshteinWithin, toKey, tokenize } from "./text";
 
 export interface Chip {
   kind: string;
@@ -102,16 +102,43 @@ function toChip(c: ChipInput): Chip {
   };
 }
 
+/**
+ * Dictionary keys grouped by first letter and length, built once per dictionary. Surname-only keys are left out.
+ * Typo matching assumes the first letter is right, which keeps each lookup small at 10k+ entries.
+ */
+const fuzzyIndexes = new WeakMap<Dictionary, Map<string, [string, DictEntry][]>>();
+function fuzzyIndex(dict: Dictionary): Map<string, [string, DictEntry][]> {
+  let index = fuzzyIndexes.get(dict);
+  if (!index) {
+    index = new Map();
+    for (const [k, e] of dict.entries) {
+      if (e.via === "surname" || k.length < 5) continue;
+      const bucket = `${k[0]}${k.length}`;
+      index.set(bucket, [...(index.get(bucket) ?? []), [k, e]]);
+    }
+    fuzzyIndexes.set(dict, index);
+  }
+  return index;
+}
+
+/** Keys with the word's first letter and a length within `max`, closest lengths first. */
+function* nearbyKeys(index: Map<string, [string, DictEntry][]>, word: string, max: number) {
+  for (let d = 0; d <= max; d++) {
+    for (const len of d === 0 ? [word.length] : [word.length - d, word.length + d]) yield* index.get(`${word[0]}${len}`) ?? [];
+  }
+}
+
 /** Find a dictionary entry with typo tolerance: edit distance 2 for two-word names, 1 for single words. */
 function fuzzyLookup(dict: Dictionary, single: string, pair: string | null): { entry: DictEntry; used: number } | null {
+  const index = fuzzyIndex(dict);
   if (pair && pair.length >= 9) {
-    for (const [k, e] of dict.entries) {
-      if (e.via === "name" && k.length >= 9 && levenshtein(pair, k) <= 2) return { entry: e, used: 2 };
+    for (const [k, e] of nearbyKeys(index, pair, 2)) {
+      if (e.via === "name" && k.length >= 9 && levenshteinWithin(pair, k, 2) <= 2) return { entry: e, used: 2 };
     }
   }
   if (single.length >= 5) {
-    for (const [k, e] of dict.entries) {
-      if (e.via !== "surname" && k.length >= 5 && levenshtein(single, k) === 1) return { entry: e, used: 1 };
+    for (const [k, e] of nearbyKeys(index, single, 1)) {
+      if (levenshteinWithin(single, k, 1) === 1) return { entry: e, used: 1 };
     }
   }
   return null;

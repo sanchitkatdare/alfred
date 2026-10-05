@@ -21,3 +21,11 @@ describe("embed", () => {
     await expect(embedQuery(fakeEnv(768), "x")).rejects.toThrow(/Expected 384/);
   });
 });
+
+describe("withTimeout", () => {
+  it("rejects a call that takes too long", async () => {
+    const { withTimeout } = await import("./timing");
+    await expect(withTimeout(new Promise(() => {}), 20, "Test call")).rejects.toThrow("Test call timed out after 20 ms");
+    await expect(withTimeout(Promise.resolve(7), 20, "Test call")).resolves.toBe(7);
+  });
+});

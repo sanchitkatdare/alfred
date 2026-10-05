@@ -78,7 +78,7 @@ interface TaskResult { model: string; run: number; task: string; pass: boolean; 
 const meta = JSON.parse(await readFile("public/data/catalog-meta.json", "utf8")) as CatalogMeta;
 const catalog: Movie[] = hydrateCatalog(meta);
 // Same data path as the browser: 8-bit vectors and story files from public/data, query vectors from Workers AI.
-const vectorIndex = createVectorIndex(meta.movies.map((m) => m.id), new Int8Array(await readFile("public/data/catalog-vectors.bin")));
+const vectorIndex = createVectorIndex(meta.movies.map((m) => m.id), new Int8Array(await readFile("public/data/catalog-vectors.bin")), meta.movies.map((m) => m.votes ?? 0));
 const loadStories = createStoryLoader(async (path) => JSON.parse(await readFile(`public/${path}`, "utf8")) as StoryShard);
 const byTitle = (t: string) => catalog.find((m) => m.title === t)?.id ?? -1;
 const parserConfig = buildMovieParserConfig(catalog);

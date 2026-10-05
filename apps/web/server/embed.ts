@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { EMBEDDING_DIMENSIONS, EMBEDDING_MODEL, type Env } from "./env";
-import { createTimer } from "./timing";
+import { createTimer, withTimeout } from "./timing";
+
+export const EMBED_TIMEOUT_MS = 10_000;
 
 export const embedRequestSchema = z.object({ text: z.string().trim().min(1).max(200) });
 
@@ -13,7 +15,7 @@ export interface EmbedResponse {
 /** Turns a search query into a vector with the same model that embedded the catalog. */
 export async function embedQuery(env: Env, text: string): Promise<{ body: EmbedResponse; serverTiming: string }> {
   const timer = createTimer();
-  const out = (await timer.step("embed", () => env.AI.run(EMBEDDING_MODEL, { text: [text] }))) as { data: number[][] };
+  const out = (await timer.step("embed", () => withTimeout(env.AI.run(EMBEDDING_MODEL, { text: [text] }), EMBED_TIMEOUT_MS, "Embedding"))) as { data: number[][] };
   const vector = out.data[0];
   if (vector?.length !== EMBEDDING_DIMENSIONS) throw new Error(`Expected ${EMBEDDING_DIMENSIONS} dimensions, got ${vector?.length}`);
   return { body: { vector: vector.map((x) => Math.round(x * 1e5) / 1e5), timings: timer.steps() }, serverTiming: timer.header() };

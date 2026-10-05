@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDictionary, decideRoute, DEFAULT_STOP_WORDS, DEFAULT_TASK_PHRASES, parse, type ParserConfig } from "../src";
+import { buildDictionary, decideRoute, DEFAULT_STOP_WORDS, DEFAULT_TASK_PHRASES, levenshteinWithin, parse, type ParserConfig } from "../src";
 
 const dictionary = buildDictionary({
   terms: [
@@ -120,5 +120,14 @@ describe("decideRoute", () => {
 
   it("returns empty for stop words only", () => {
     expect(routeOf("a movie")).toBe("empty");
+  });
+});
+
+describe("levenshteinWithin", () => {
+  it("returns the distance when within the limit and max + 1 otherwise", () => {
+    expect(levenshteinWithin("lawrance", "lawrence", 2)).toBe(1);
+    expect(levenshteinWithin("jeniferlawrance", "jenniferlawrence", 2)).toBe(2);
+    expect(levenshteinWithin("pacino", "deniro", 1)).toBe(2);
+    expect(levenshteinWithin("abc", "abcdef", 2)).toBe(3);
   });
 });

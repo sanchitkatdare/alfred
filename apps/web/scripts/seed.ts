@@ -125,6 +125,19 @@ const textHash = (text: string) => createHash("sha256").update(`${EMBEDDING_MODE
 const encodeVector = (v: number[]) => Buffer.from(new Float32Array(v).buffer).toString("base64");
 const decodeVector = (s: string) => Array.from(new Float32Array(Uint8Array.from(Buffer.from(s, "base64")).buffer));
 
+/** Retries a remote call: Wrangler's remote connection can drop during long runs. */
+async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (attempt >= attempts) throw e;
+      console.log(`  Retrying after error (${attempt}/${attempts - 1}): ${e instanceof Error ? e.message : e}`);
+      await sleep(2000 * attempt);
+    }
+  }
+}
+
 async function readCache(): Promise<EmbeddingCache> {
   try {
     return JSON.parse(await readFile(CACHE_FILE, "utf8")) as EmbeddingCache;
@@ -207,10 +220,15 @@ async function main() {
       // Workers AI is reached through Wrangler's remote binding (your Wrangler login).
       const proxy = await getPlatformProxy<Env>({ configPath: "wrangler.jsonc" });
       try {
-        for (const batch of chunk(missing, EMBED_BATCH)) {
-          const out = (await proxy.env.AI.run(EMBEDDING_MODEL, { text: batch.map((i) => texts[i]!) })) as { data: number[][] };
+        await mkdir(".cache", { recursive: true });
+        const batches = chunk(missing, EMBED_BATCH);
+        for (const [n, batch] of batches.entries()) {
+          const out = await withRetry(() => proxy.env.AI.run(EMBEDDING_MODEL, { text: batch.map((i) => texts[i]!) }) as Promise<{ data: number[][] }>);
           if (out.data[0]?.length !== EMBEDDING_DIMENSIONS) throw new Error(`Expected ${EMBEDDING_DIMENSIONS} dimensions, got ${out.data[0]?.length}`);
           batch.forEach((i, k) => (cache[details[i]!.id] = { hash: hashes[i]!, vector: encodeVector(out.data[k]!) }));
+          // Save after every batch, so an interrupted run loses at most one batch of paid embeddings.
+          await writeFile(CACHE_FILE, JSON.stringify(cache));
+          if ((n + 1) % 20 === 0 || n === batches.length - 1) lap(`Embedded batch ${n + 1}/${batches.length}`);
         }
       } finally {
         await proxy.dispose();

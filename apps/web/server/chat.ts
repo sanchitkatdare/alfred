@@ -3,12 +3,14 @@ import { z } from "zod";
 import { movieToolSpecs } from "../src/movies/tools";
 import type { Env } from "./env";
 import { LIMITS } from "./http";
-import { createTimer } from "./timing";
+import { createTimer, withTimeout } from "./timing";
 
 /** Chosen by the model comparison (docs/architecture.html, Model selection). Needs parser hints. The client cannot change it. */
 export const MOVIE_CHAT_MODEL = "@cf/ibm-granite/granite-4.0-h-micro";
 export const MAX_OUTPUT_TOKENS = 700;
 export const AI_GATEWAY_ID = "alfred";
+/** One LLM turn. The agent loop makes 2-5 turns per task. */
+export const CHAT_TIMEOUT_MS = 25_000;
 
 const TOOL_SPECS = movieToolSpecs();
 
@@ -68,6 +70,6 @@ export async function runMovieChat(env: Env, messages: ChatMessage[], options: {
   };
   const gateway = options.gateway === false ? undefined : { gateway: { id: AI_GATEWAY_ID, metadata: { app: "movies" } } };
   const ai = env.AI as unknown as { run(model: string, input: unknown, options?: unknown): Promise<unknown> };
-  const raw = await timer.step("llm", () => ai.run(model, input, gateway));
+  const raw = await timer.step("llm", () => withTimeout(ai.run(model, input, gateway), CHAT_TIMEOUT_MS, "LLM call"));
   return { ...fromOpenAIResponse(raw), timings: timer.steps(), serverTiming: timer.header() };
 }

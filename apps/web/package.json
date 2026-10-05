@@ -12,7 +12,8 @@
     "dev:api": "pnpm build && wrangler pages dev",
     "seed": "node --env-file-if-exists=../../.env scripts/seed.ts",
     "compare-models": "tsx scripts/compare-models.ts",
-    "bench:embedding": "tsx bench/run-embedding-bench.ts"
+    "bench:embedding": "tsx bench/run-embedding-bench.ts",
+    "check-catalog": "tsx scripts/check-catalog.ts"
   },
   "dependencies": {
     "@alfred/agent-harness": "workspace:*",
