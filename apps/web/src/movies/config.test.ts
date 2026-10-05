@@ -75,6 +75,30 @@ describe("years and titles", () => {
   });
 });
 
+describe("questions go to the assistant (rule B)", () => {
+  it.each([
+    "is heat worth watching?",
+    "what is memento about",
+    "what's inception about?",
+    "tell me about the matrix",
+    "who directed taxi driver",
+    "how long is the irishman",
+    "should i watch scarface",
+    "why is the godfather so famous",
+    "difference between heat and the irishman",
+  ])("%s", (q) => {
+    expect(routeOf(q)).toBe("assistant");
+  });
+
+  it.each([
+    ["what is a good comedy", "local"],
+    ["a movie about a heist", "semantic"],
+    ["mind-bending dream heist", "semantic"],
+  ])("%s stays a search", (q, route) => {
+    expect(routeOf(q)).toBe(route);
+  });
+});
+
 describe("end to end: chips, route and results", () => {
   it("filters by actor and genre locally", () => {
     expect(routeOf("a jennifer lawrence action movie")).toBe("local");

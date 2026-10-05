@@ -44,13 +44,31 @@ const STOP_WORDS = [...DEFAULT_STOP_WORDS, "movie", "movies", "film", "films", "
 
 const UNWATCHED = { kind: "user", id: "unwatched", label: "Unwatched only" };
 const GROUP = { kind: "task", id: "group", label: "group pick" };
+/** Questions about a movie or for an opinion go to the assistant (routing rule B). */
+const QUESTION = { kind: "task", id: "question", label: "question" };
 const PHRASES: PhraseChip[] = [
   ...DEFAULT_TASK_PHRASES,
   { phrase: ["movie", "night"], chip: { kind: "task", id: "plan", label: "plan" } },
   { phrase: ["marathon"], chip: { kind: "task", id: "plan", label: "plan" } },
   ...[["me", "and"], ["my", "friend"], ["my", "friends"], ["friend"], ["friends"], ["both", "of", "us"]].map((phrase) => ({ phrase, chip: GROUP })),
   ...[["havent", "seen"], ["havent", "watched"], ["not", "seen"], ["not", "watched"], ["new", "to", "me"], ["unwatched"], ["unseen"]].map((phrase) => ({ phrase, chip: UNWATCHED })),
+  ...[
+    ["worth", "watching"], ["worth", "seeing"], ["worth", "it"], ["worth", "a", "watch"], ["any", "good"], ["is", "it", "good"],
+    ["tell", "me", "about"], ["tell", "me", "more"], ["who", "directed"], ["who", "plays"], ["who", "stars"], ["who", "is", "in"], ["whos", "in"],
+    ["how", "long", "is"], ["difference", "between"],
+  ].map((phrase) => ({ phrase, chip: QUESTION })),
 ];
+
+/** "what is <movie> about", "what's it about": a question when the query starts with "what" and ends with "about". */
+const aboutQuestionRule: Rule = {
+  name: "about-question",
+  match(ctx, i) {
+    let last = ctx.tokens.length - 1;
+    while (last > 0 && !ctx.keyAt(last)) last--; // skip trailing punctuation such as "?"
+    if (i !== last || ctx.keyAt(i) !== "about" || !["what", "whats"].includes(ctx.keyAt(0))) return null;
+    return { consumed: 1, chips: [QUESTION], trace: `"what … about" → task: question` };
+  },
+};
 
 const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, a: 1, an: 1 };
 const HOURS = new Set(["h", "hr", "hrs", "hour", "hours"]);
@@ -229,7 +247,7 @@ export function buildMovieParserConfig(catalog: Movie[]): ParserConfig {
       commonWords: [...COMMON_WORDS, ...titleWords(catalog)],
       minSurnameCount: 2,
     }),
-    rules: [ratingRule, comparisonRule, yearRule, similarRule(titles)],
+    rules: [ratingRule, comparisonRule, yearRule, similarRule(titles), aboutQuestionRule],
     phrases: PHRASES,
     stopWords: STOP_WORDS,
   };

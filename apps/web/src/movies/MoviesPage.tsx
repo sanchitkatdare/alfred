@@ -7,6 +7,7 @@ import { createMovieAssistant } from "./assistant";
 import type { CatalogMeta, Movie } from "./catalog";
 import { buildMovieParserConfig, MOVIE_ROUTER_OPTIONS } from "./config";
 import { loadCatalog, loadStories, loadSynopses, loadVectors } from "./data";
+import { isFollowUp } from "./followups";
 import { chipsToSearchHints } from "./hints";
 import { byRating, filterCatalog } from "./tools";
 import { useWatched } from "./useWatched";
@@ -30,7 +31,7 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 const ROUTES: Record<Route, { name: string; cost: string; detail: string }> = {
-  local: { name: "Local filter", cost: "0 AI calls · no network", detail: "Rules matched every word. The list below updates as you type." },
+  local: { name: "Local filter", cost: "0 AI calls · no network", detail: "The list below updates as you type; Search changes nothing." },
   semantic: { name: "Search by meaning", cost: "1 embedding · 0 LLM · ≈ 0.1 s", detail: "Press Enter: the server turns the free text into a vector, and your browser ranks the filtered movies by meaning." },
   assistant: { name: "Assistant", cost: "2-5 LLM calls · ≈ 5-10 s", detail: "Press Enter: the assistant searches, reads and decides in up to 5 steps. You see each step." },
   empty: { name: "Waiting for input", cost: "", detail: "Type a request or pick an example." },
@@ -85,9 +86,15 @@ function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Mo
     [catalog, getWatched, markWatched, search],
   );
 
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const running = turns.at(-1)?.status === "running";
   const parsed = useMemo(() => parse(query, config), [query, config]);
   const chips = parsed.chips.filter((c) => !removed.has(c.sig));
-  const decision = decideRoute({ chips, leftover: parsed.leftover }, MOVIE_ROUTER_OPTIONS);
+  const ruleDecision = decideRoute({ chips, leftover: parsed.leftover }, MOVIE_ROUTER_OPTIONS);
+  // Rule A: during a conversation, words that refer back ("those", "shorter") make it a follow-up for the assistant.
+  const [ignoreFollowUp, setIgnoreFollowUp] = useState(false);
+  const followUp = !ignoreFollowUp && ruleDecision.route !== "assistant" && turns.some((t) => t.status === "done") && isFollowUp(query);
+  const decision: { route: Route; reason: string } = followUp ? { route: "assistant", reason: "Follow-up to the conversation" } : ruleDecision;
   const deferredChips = useDeferredValue(chips);
   const live = useMemo(() => {
     // Same filter as the assistant's search_movies: chips become hard filters.
@@ -127,10 +134,8 @@ function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Mo
   };
 
   // Assistant
-  const [turns, setTurns] = useState<Turn[]>([]);
   const history = useRef<ChatMessage[]>([]);
   const abort = useRef<AbortController | null>(null);
-  const running = turns.at(-1)?.status === "running";
   const runAssistant = async () => {
     const question = query.trim();
     if (!question) return;
@@ -168,6 +173,7 @@ function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Mo
     setQuery(text.slice(0, MAX_QUERY_CHARS));
     setRemoved(new Set());
     setSearchError(null);
+    setIgnoreFollowUp(false);
   };
   const removeChip = (chip: Chip) => {
     setRemoved(new Set([...removed, chip.sig]));
@@ -216,6 +222,12 @@ function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Mo
                 </span>
               );
             })}
+            {followUp && (
+              <span className="chip task">
+                <span className="kind">task</span><span className="val">follow-up</span>
+                <button type="button" className="x" aria-label="Remove follow-up" onClick={() => setIgnoreFollowUp(true)}>×</button>
+              </span>
+            )}
             {parsed.leftover.map((w, i) => (
               <span key={`${w}-${i}`} className="chip free"><span className="kind">free text</span><span className="val">{w}</span></span>
             ))}
@@ -224,7 +236,7 @@ function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Mo
                 <span className="kind">complete</span><span className="val">{parsed.suggestion.to}?</span>
               </button>
             )}
-            {!chips.length && !parsed.leftover.length && !parsed.suggestion && <span className="placeholder">Chips appear here as you type.</span>}
+            {!chips.length && !followUp && !parsed.leftover.length && !parsed.suggestion && <span className="placeholder">Chips appear here as you type.</span>}
           </div>
         </div>
 
@@ -232,12 +244,7 @@ function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Mo
           <label htmlFor="q">Ask for a movie</label>
           <div className="qrow">
             <input id="q" ref={inputRef} type="text" autoComplete="off" spellCheck={false} maxLength={MAX_QUERY_CHARS} value={query} onChange={(e) => setText(e.target.value)} />
-            {decision.route === "semantic" && <button type="submit" className="btn" disabled={busy}>{searching ? "Searching…" : "Search"}</button>}
-            {decision.route !== "empty" && (
-              <button type={decision.route === "assistant" ? "submit" : "button"} className={`btn ${decision.route === "assistant" ? "" : "ghost"}`} disabled={busy} onClick={decision.route === "assistant" ? undefined : () => void runAssistant()}>
-                {running ? "Working…" : "Ask assistant"}
-              </button>
-            )}
+            <button type="submit" className="btn" disabled={busy || decision.route === "empty"}>{busy ? "Working…" : "Search"}</button>
           </div>
           {query.length >= MAX_QUERY_CHARS - 50 && <span className="note counter">{query.length}/{MAX_QUERY_CHARS} characters</span>}
           <div className="examples">
@@ -273,6 +280,11 @@ function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Mo
               ))}
               {!shown.length && <li><span className="empty">No movie matches these filters.</span></li>}
             </ul>
+            {showSemantic && (
+              <p className="note">
+                <button type="button" className="linkish" disabled={busy} onClick={() => void runAssistant()}>No, Alfred, not what I wanted. Ask Oracle instead</button>
+              </p>
+            )}
             {(live.hiddenWatched > 0 || watched.size > 0) && (
               <p className="note">
                 {live.hiddenWatched > 0 && `${live.hiddenWatched} hidden because you marked them watched. `}
