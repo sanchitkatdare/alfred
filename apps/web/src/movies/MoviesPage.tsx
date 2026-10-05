@@ -1,11 +1,10 @@
-import { decideRoute, parse, type Chip, type Route } from "@alfred/agent-harness";
-import { useDeferredValue, useMemo, useRef, useState } from "react";
-import { SAMPLE_CATALOG } from "./catalog";
+import { decideRoute, parse, type Chip, type ParserConfig, type Route } from "@alfred/agent-harness";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { hydrateCatalog, type CatalogMeta, type Movie } from "./catalog";
 import { buildMovieParserConfig, MOVIE_ROUTER_OPTIONS } from "./config";
-import { filterMovies } from "./filter";
+import { chipsToSearchHints } from "./hints";
+import { byRating, filterCatalog } from "./tools";
 import { useWatched } from "./useWatched";
-
-const config = buildMovieParserConfig(SAMPLE_CATALOG);
 
 const EXAMPLES = [
   "a jennifer lawrence action movie",
@@ -33,18 +32,23 @@ const ROUTES: Record<Route, { name: string; cost: string; detail: string }> = {
 
 const formatRuntime = (min: number) => `${Math.floor(min / 60)}h${min % 60 ? ` ${min % 60}m` : ""}`;
 
-export function MoviesPage() {
+function MovieSearch({ catalog, config }: { catalog: Movie[]; config: ParserConfig }) {
   const [query, setQuery] = useState(EXAMPLES[2]!);
   const [removed, setRemoved] = useState<ReadonlySet<string>>(new Set());
   const { watched, markWatched, clear } = useWatched();
   const inputRef = useRef<HTMLInputElement>(null);
   const seenSigs = useRef<Set<string>>(new Set());
 
-  const parsed = useMemo(() => parse(query, config), [query]);
+  const parsed = useMemo(() => parse(query, config), [query, config]);
   const chips = parsed.chips.filter((c) => !removed.has(c.sig));
   const decision = decideRoute({ chips, leftover: parsed.leftover }, MOVIE_ROUTER_OPTIONS);
   const deferredChips = useDeferredValue(chips);
-  const result = useMemo(() => filterMovies(SAMPLE_CATALOG, deferredChips, watched), [deferredChips, watched]);
+  const result = useMemo(() => {
+    // Same filter as the assistant's search_movies: chips become hard filters.
+    const all = filterCatalog(catalog, { ...chipsToSearchHints(deferredChips), includeWatched: true }, watched).sort(byRating);
+    const movies = all.filter((m) => !watched.has(m.id));
+    return { movies, hiddenWatched: all.length - movies.length };
+  }, [catalog, deferredChips, watched]);
 
   const fresh = new Set(chips.filter((c) => !seenSigs.current.has(c.sig)).map((c) => c.sig));
   seenSigs.current = new Set(chips.map((c) => c.sig));
@@ -71,7 +75,7 @@ export function MoviesPage() {
     <main className="page">
       <header className="head">
         <h1>Alfred Movies</h1>
-        <p className="muted">Type a request. Rules parse it in the browser as you type. Sample catalog of {SAMPLE_CATALOG.length} movies.</p>
+        <p className="muted">Type a request. Rules parse it in the browser as you type. Catalog of {catalog.length.toLocaleString()} movies from TMDB.</p>
       </header>
 
       <section className="sim" aria-label="Movie search">
@@ -118,7 +122,7 @@ export function MoviesPage() {
           <div className="panel">
             <div className="panel-head">
               <h2>Results</h2>
-              <span className="note">{result.movies.length} of {SAMPLE_CATALOG.length} match</span>
+              <span className="note">{result.movies.length} of {catalog.length} match</span>
             </div>
             <ul className="results">
               {result.movies.slice(0, 10).map((movie) => (
@@ -152,6 +156,36 @@ export function MoviesPage() {
           </div>
         </div>
       </section>
+    </main>
+  );
+}
+
+type CatalogState = { status: "loading" } | { status: "missing" } | { status: "ready"; catalog: Movie[]; config: ParserConfig };
+
+/** Loads the seeded catalog, then shows the search. */
+export function MoviesPage() {
+  const [state, setState] = useState<CatalogState>({ status: "loading" });
+  useEffect(() => {
+    fetch(`${import.meta.env.BASE_URL}data/catalog-meta.json`)
+      .then((r) => (r.ok ? (r.json() as Promise<CatalogMeta>) : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((meta) => {
+        const catalog = hydrateCatalog(meta);
+        setState({ status: "ready", catalog, config: buildMovieParserConfig(catalog) });
+      })
+      .catch(() => setState({ status: "missing" }));
+  }, []);
+
+  if (state.status === "ready") return <MovieSearch catalog={state.catalog} config={state.config} />;
+  return (
+    <main className="page">
+      <header className="head">
+        <h1>Alfred Movies</h1>
+        {state.status === "loading" ? (
+          <p className="muted">Loading the movie catalog…</p>
+        ) : (
+          <p className="muted">The movie catalog is missing. Run <code>pnpm --filter @alfred/web seed --count 500</code> with <code>TMDB_TOKEN</code> in the repo-root <code>.env</code>.</p>
+        )}
+      </header>
     </main>
   );
 }

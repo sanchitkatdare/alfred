@@ -13,6 +13,7 @@ Work in progress.
 
 ```sh
 pnpm install
+pnpm --filter @alfred/web seed --count 500   # builds the movie catalog; needs TMDB_TOKEN in .env and `wrangler login`
 pnpm dev     # http://localhost:5173
 pnpm -r test
 ```

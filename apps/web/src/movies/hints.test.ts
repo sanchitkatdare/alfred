@@ -1,6 +1,6 @@
 import { parse } from "@alfred/agent-harness";
 import { describe, expect, it } from "vitest";
-import { SAMPLE_CATALOG } from "./catalog";
+import { SAMPLE_CATALOG } from "./sample-catalog.fixture";
 import { buildMovieParserConfig } from "./config";
 import { chipsToSearchHints, mergeSearchHints } from "./hints";
 import type { SearchArgs } from "./tools";

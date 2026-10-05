@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SAMPLE_CATALOG } from "./catalog";
+import { SAMPLE_CATALOG } from "./sample-catalog.fixture";
 import { createMovieTools, movieToolSpecs, type MovieToolContext } from "./tools";
 
 function setup(watched: number[] = []) {

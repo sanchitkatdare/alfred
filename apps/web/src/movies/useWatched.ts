@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 const STORAGE_KEY = "alfred.movies.watched";
 /** Keep the most recent entries only. */
@@ -31,8 +31,9 @@ export function useWatched() {
     setIds(capped);
   }, []);
 
+  const watched = useMemo(() => new Set(ids), [ids]);
   return {
-    watched: new Set(ids),
+    watched,
     markWatched: (id: number) => update([...ids.filter((x) => x !== id), id]),
     clear: () => update([]),
   };

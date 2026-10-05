@@ -47,12 +47,21 @@ const searchSchema = z.object({
 
 export type SearchArgs = z.infer<typeof searchSchema>;
 
-const personMatches = (movie: Movie, name: string) => {
-  const k = toKey(name);
-  return [...movie.cast, ...movie.directors].some((p) => toKey(p) === k || toKey(p).endsWith(k));
+/** Normalized cast and director names per movie, computed once: the filter runs on every keystroke over 10k movies. */
+const peopleKeyCache = new WeakMap<Movie, string[]>();
+const peopleKeys = (movie: Movie) => {
+  let keys = peopleKeyCache.get(movie);
+  if (!keys) peopleKeyCache.set(movie, (keys = [...movie.cast, ...movie.directors].map(toKey)));
+  return keys;
 };
 
-function filterCatalog(catalog: Movie[], a: SearchArgs, watched: ReadonlySet<number>): Movie[] {
+const personMatches = (movie: Movie, name: string) => {
+  const k = toKey(name);
+  return peopleKeys(movie).some((p) => p === k || p.endsWith(k));
+};
+
+/** The one movie filter, used by the assistant's search_movies and by the search page. */
+export function filterCatalog(catalog: Movie[], a: SearchArgs, watched: ReadonlySet<number>): Movie[] {
   const title = a.title ? toKey(a.title) : "";
   return catalog.filter((m) =>
     (!title || toKey(m.title).includes(title) || toKey(m.originalTitle ?? "").includes(title)) &&
@@ -68,6 +77,9 @@ function filterCatalog(catalog: Movie[], a: SearchArgs, watched: ReadonlySet<num
     (a.includeWatched || !!title || !watched.has(m.id)),
   );
 }
+
+/** Best first: rating, then vote count. */
+export const byRating = (x: Movie, y: Movie) => y.rating - x.rating || (y.votes ?? 0) - (x.votes ?? 0);
 
 const summary = (m: Movie) => ({
   id: m.id, title: m.title, year: m.year, runtime: m.runtime, rating: m.rating,
@@ -93,7 +105,7 @@ export function createMovieTools(ctx: MovieToolContext): Tool<any, any>[] {
           : (await ctx.search(a.query)).filter((r) => allowed.has(r.id));
         ordered = ranked.map((r) => byId.get(r.id)).filter((m): m is Movie => !!m);
       } else {
-        ordered = [...filtered].sort((x, y) => y.rating - x.rating || (y.votes ?? 0) - (x.votes ?? 0));
+        ordered = [...filtered].sort(byRating);
       }
       return { matches: filtered.length, movies: ordered.slice(0, limit).map(summary) };
     },

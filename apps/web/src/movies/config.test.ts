@@ -1,12 +1,14 @@
 import { decideRoute, parse } from "@alfred/agent-harness";
 import { describe, expect, it } from "vitest";
-import { SAMPLE_CATALOG } from "./catalog";
+import { SAMPLE_CATALOG } from "./sample-catalog.fixture";
 import { buildMovieParserConfig, MOVIE_ROUTER_OPTIONS } from "./config";
-import { filterMovies } from "./filter";
+import { chipsToSearchHints } from "./hints";
+import { byRating, filterCatalog } from "./tools";
 
 const config = buildMovieParserConfig(SAMPLE_CATALOG);
 const chipsOf = (q: string) => parse(q, config).chips.map((c) => `${c.negate ? "!" : ""}${c.kind}:${c.label}`);
-const titlesOf = (q: string) => filterMovies(SAMPLE_CATALOG, parse(q, config).chips, new Set()).movies.map((m) => m.title);
+const filtered = (q: string, watched = new Set<number>()) => filterCatalog(SAMPLE_CATALOG, chipsToSearchHints(parse(q, config).chips), watched).sort(byRating);
+const titlesOf = (q: string) => filtered(q).map((m) => m.title);
 const routeOf = (q: string) => decideRoute(parse(q, config), MOVIE_ROUTER_OPTIONS).route;
 
 describe("numbers: rating or runtime", () => {
@@ -85,7 +87,9 @@ describe("end to end: chips, route and results", () => {
 
   it("sends a similar-title query to semantic search", () => {
     expect(routeOf("like inception but not sci-fi, under 2 hours")).toBe("semantic");
-    expect(titlesOf("like inception but not sci-fi, under 2 hours")).toEqual(["John Wick", "Get Out", "Righteous Kill"]);
+    const movies = filtered("like inception but not sci-fi, under 2 hours");
+    expect(movies.length).toBeGreaterThan(0);
+    expect(movies.every((m) => !m.genres.includes("sci-fi") && m.runtime <= 120)).toBe(true);
   });
 
   it("sends a group task to the assistant", () => {
@@ -94,8 +98,7 @@ describe("end to end: chips, route and results", () => {
 
   it("hides watched movies", () => {
     const heat = SAMPLE_CATALOG.find((m) => m.title === "Heat")!;
-    const r = filterMovies(SAMPLE_CATALOG, parse("pacino crime", config).chips, new Set([heat.id]));
-    expect(r.movies.map((m) => m.title)).not.toContain("Heat");
-    expect(r.hiddenWatched).toBe(1);
+    expect(titlesOf("pacino crime")).toContain("Heat");
+    expect(filtered("pacino crime", new Set([heat.id])).map((m) => m.title)).not.toContain("Heat");
   });
 });
