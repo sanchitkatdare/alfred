@@ -105,3 +105,5 @@ p { margin: 0; }
 .results .syn { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
 .foot { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
 .foot img { vertical-align: middle; margin-right: 6px; }
+.answer.dismissible { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+.answer.dismissible .x { border: 0; background: transparent; color: inherit; font-size: 16px; line-height: 1; padding: 0 2px; }

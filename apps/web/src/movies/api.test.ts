@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createEmbedClient } from "./api";
+import { createEmbedClient, friendlyError } from "./api";
 
 function fakeServer(fail = 0) {
   const calls: string[] = [];
@@ -37,5 +37,18 @@ describe("embed client", () => {
     await embed("q50"); // still cached
     expect(calls.filter((c) => c === "q0")).toHaveLength(2);
     expect(calls.filter((c) => c === "q50")).toHaveLength(1);
+  });
+});
+
+describe("friendlyError", () => {
+  it("explains an unreachable API server", () => {
+    expect(friendlyError(new Error("Request failed (HTTP 502)"))).toMatch(/Can't reach the API server/);
+    expect(friendlyError(new Error('LLM provider "http:/api/movies/chat" failed: Chat request failed with status 502'))).toMatch(/Can't reach the API server/);
+    expect(friendlyError(new TypeError("Failed to fetch"))).toMatch(/Can't reach/);
+  });
+
+  it("keeps readable server messages and drops the harness prefix", () => {
+    expect(friendlyError(new Error("Search is unavailable right now. Filters still work."))).toBe("Search is unavailable right now. Filters still work.");
+    expect(friendlyError(new Error('LLM provider "x" failed: The assistant is unavailable right now.'))).toBe("The assistant is unavailable right now.");
   });
 });

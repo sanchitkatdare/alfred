@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently --kill-others --names page,api --prefix-colors blue,yellow \"vite\" \"pnpm dev:api\"",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
@@ -13,7 +13,8 @@
     "seed": "node --env-file-if-exists=../../.env scripts/seed.ts",
     "compare-models": "tsx scripts/compare-models.ts",
     "bench:embedding": "tsx bench/run-embedding-bench.ts",
-    "check-catalog": "tsx scripts/check-catalog.ts"
+    "check-catalog": "tsx scripts/check-catalog.ts",
+    "dev:vite": "vite"
   },
   "dependencies": {
     "@alfred/agent-harness": "workspace:*",
@@ -27,6 +28,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.5",
     "playwright-core": "^1.63.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",

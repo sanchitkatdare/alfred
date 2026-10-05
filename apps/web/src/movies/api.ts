@@ -29,3 +29,17 @@ export function createEmbedClient(fetchImpl: typeof fetch = (...args) => fetch(.
     return vector;
   };
 }
+
+/**
+ * Turns low-level errors into a message for the page. Our Functions send readable errors;
+ * an empty 502 or a network failure means the API server was not reached at all.
+ */
+export function friendlyError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/failed to fetch|networkerror|load failed|HTTP 50[234]|status 50[234]/i.test(message)) {
+    return import.meta.env.DEV
+      ? "Can't reach the API server. Start it with `pnpm dev`, which runs the page and the API together."
+      : "Can't reach the server right now. Filters still work.";
+  }
+  return message.replace(/^LLM provider "[^"]*" failed: /, "");
+}

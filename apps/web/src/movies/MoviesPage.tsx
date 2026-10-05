@@ -1,7 +1,7 @@
 import { decideRoute, parse, type ChatMessage, type Chip, type ParserConfig, type Route } from "@alfred/agent-harness";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import tmdbLogo from "../../../../assets/tmdb.svg";
-import { createEmbedClient } from "./api";
+import { createEmbedClient, friendlyError } from "./api";
 import { AssistantPanel, describeEvent, type Turn } from "./AssistantPanel";
 import { createMovieAssistant } from "./assistant";
 import type { CatalogMeta, Movie } from "./catalog";
@@ -120,7 +120,7 @@ function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Mo
       const ranked = rankByVector(index, queryVector, ids, 10);
       setSemantic({ query, movies: ranked.map((r) => byId.get(r.id)!), ms: Math.round(performance.now() - started) });
     } catch (e) {
-      setSearchError(e instanceof Error ? e.message : String(e));
+      setSearchError(friendlyError(e));
     } finally {
       setSearching(false);
     }
@@ -152,11 +152,11 @@ function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Mo
         history.current = result.transcript.filter((m) => m.role !== "system");
         update((t) => ({ ...t, status: "done", answer: result.message?.content || "(no answer)" }));
       } else {
-        const error = result.status === "limit_reached" ? "The assistant ran out of steps. Try a more specific question." : (result.error ?? "The assistant failed.");
+        const error = result.status === "limit_reached" ? "The assistant ran out of steps. Try a more specific question." : friendlyError(result.error ?? "The assistant failed.");
         update((t) => ({ ...t, status: "failed", error: error === "Aborted" ? "Stopped." : error }));
       }
     } catch (e) {
-      update((t) => ({ ...t, status: "failed", error: e instanceof Error ? e.message : String(e) }));
+      update((t) => ({ ...t, status: "failed", error: friendlyError(e) }));
     }
   };
   const resetConversation = () => {
@@ -167,6 +167,7 @@ function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Mo
   const setText = (text: string) => {
     setQuery(text.slice(0, MAX_QUERY_CHARS));
     setRemoved(new Set());
+    setSearchError(null);
   };
   const removeChip = (chip: Chip) => {
     setRemoved(new Set([...removed, chip.sig]));
@@ -255,7 +256,12 @@ function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Mo
               <h2>{showSemantic ? "Best matches by meaning" : "Results"}</h2>
               <span className="note">{showSemantic ? `ranked in ${semantic.ms} ms` : `${live.movies.length} of ${catalog.length} match`}</span>
             </div>
-            {searchError && <p className="answer failed">{searchError}</p>}
+            {searchError && (
+              <p className="answer failed dismissible" role="alert">
+                <span>{searchError}</span>
+                <button type="button" className="x" aria-label="Dismiss error" onClick={() => setSearchError(null)}>×</button>
+              </p>
+            )}
             <ul className="results">
               {shown.map((movie) => (
                 <li key={movie.id}>
