@@ -10,13 +10,17 @@ export const storyShardPath = (shard: number) => `data/stories/${shard}.json`;
 
 export type StoryShard = Record<string, Omit<MovieStory, "id">>;
 
-/** Loads stories by id, fetching each shard at most once. */
+/** Loads stories by id, fetching each shard at most once. A failed fetch is not cached, so the next call retries. */
 export function createStoryLoader(fetchShard: (path: string) => Promise<StoryShard>) {
   const shards = new Map<number, Promise<StoryShard>>();
   return async (ids: number[]): Promise<MovieStory[]> => {
     const results = await Promise.all(ids.map(async (id) => {
       const shard = storyShardOf(id);
-      if (!shards.has(shard)) shards.set(shard, fetchShard(storyShardPath(shard)));
+      if (!shards.has(shard)) {
+        const request = fetchShard(storyShardPath(shard));
+        shards.set(shard, request);
+        request.catch(() => shards.delete(shard));
+      }
       const story = (await shards.get(shard)!)[id];
       return story ? { id, ...story } : null;
     }));

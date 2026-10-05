@@ -13,4 +13,15 @@ describe("story loader", () => {
     // 77 and 141 share shard 13; 999 is in shard 39 and has no story.
     expect(fetched).toEqual([storyShardPath(13), storyShardPath(39)]);
   });
+
+  it("retries a shard after a failed fetch", async () => {
+    let calls = 0;
+    const load = createStoryLoader(async () => {
+      if (++calls === 1) throw new Error("network blip");
+      return { 77: { overview: "Memory loss.", tagline: "", keywords: "" } };
+    });
+    await expect(load([77])).rejects.toThrow("network blip");
+    expect((await load([77])).map((s) => s.id)).toEqual([77]);
+    expect(calls).toBe(2);
+  });
 });
