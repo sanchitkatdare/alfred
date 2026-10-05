@@ -16,16 +16,13 @@ export interface MovieToolContext {
   catalog: Movie[];
   getWatched(): ReadonlySet<number>;
   markWatched(id: number): void;
-  /** Semantic search. With `ids`, ranks only those candidates. */
-  search(text: string, ids?: number[]): Promise<{ id: number; score: number }[]>;
+  /** Semantic search: ranks the given movies by meaning, best first. */
+  search(text: string, ids: number[]): Promise<{ id: number; score: number }[]>;
   /** Overview, tagline and keywords from the server. */
   details(ids: number[]): Promise<MovieStory[]>;
   /** Filters the rule parser took from the user's message. Applied to every search except title lookups. */
   getHints?(): SearchHints;
 }
-
-/** Above this many filtered movies, semantic search queries the whole index instead of ranking candidates. */
-const MAX_CANDIDATES = 200;
 
 const genre = z.enum(GENRE_IDS as [string, ...string[]]);
 
@@ -99,10 +96,8 @@ export function createMovieTools(ctx: MovieToolContext): Tool<any, any>[] {
       const limit = a.limit ?? 5;
       let ordered: Movie[];
       if (a.query && filtered.length) {
-        const allowed = new Set(filtered.map((m) => m.id));
-        const ranked = filtered.length <= MAX_CANDIDATES
-          ? await ctx.search(a.query, [...allowed])
-          : (await ctx.search(a.query)).filter((r) => allowed.has(r.id));
+        // Ranking runs locally, so rank every filtered movie (about 10 ms for all 10k).
+        const ranked = await ctx.search(a.query, filtered.map((m) => m.id));
         ordered = ranked.map((r) => byId.get(r.id)).filter((m): m is Movie => !!m);
       } else {
         ordered = [...filtered].sort(byRating);
