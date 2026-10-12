@@ -66,6 +66,9 @@ export async function runMovieChat(env: Env, messages: ChatMessage[], options: {
   const input = {
     messages: toOpenAIMessages([{ role: "system", content: movieSystemPrompt() }, ...messages]),
     tools: toOpenAITools(TOOL_SPECS),
+    // First call for a new question: a tool call is required, so the model cannot answer from memory.
+    // Measured on granite (2026-10-12): tool calls 3/10 without, 10/10 with.
+    ...(messages.at(-1)?.role === "user" ? { tool_choice: "required" } : {}),
     max_tokens: MAX_OUTPUT_TOKENS,
   };
   const gateway = options.gateway === false ? undefined : { gateway: { id: AI_GATEWAY_ID, metadata: { app: "movies" } } };
