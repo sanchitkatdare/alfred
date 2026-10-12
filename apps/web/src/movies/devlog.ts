@@ -15,7 +15,7 @@ export interface DevItem {
 
 export interface DevEntry {
   id: number;
-  kind: "load" | "search" | "assistant";
+  kind: "load" | "search" | "assistant" | "lookup";
   title: string;
   started: number;
   ms?: number;

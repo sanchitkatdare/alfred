@@ -10,6 +10,7 @@ import type { CatalogMeta, Movie } from "./catalog";
 import { buildMovieParserConfig, MOVIE_ROUTER_OPTIONS } from "./config";
 import { loadCatalog, loadStories, loadSynopses, loadVectors } from "./data";
 import { isFollowUp } from "./followups";
+import { aboutAnswer, answerFromCatalog, buildTitleIndex, describeLookup, detectLookup, RUNS_ON_ENTER, type Lookup } from "./lookups";
 import { chipsToSearchHints } from "./hints";
 import { byRating, filterCatalog } from "./tools";
 import { useWatched } from "./useWatched";
@@ -32,7 +33,11 @@ const KIND_LABEL: Record<string, string> = {
   rating: "rating", similar: "like", task: "task", user: "my data",
 };
 
-const ROUTES: Record<Route, { name: string; cost: string; detail: string }> = {
+/** "lookup" is a Level 2 workflow: answered by code, never by the LLM. */
+type AppRoute = Route | "lookup";
+
+const ROUTES: Record<AppRoute, { name: string; cost: string; detail: string }> = {
+  lookup: { name: "Lookup", cost: "0 AI calls", detail: "Answered by code from the catalog, the story files or your watched list. No LLM." },
   local: { name: "Local filter", cost: "0 AI calls · no network", detail: "The list below updates as you type; Search changes nothing." },
   semantic: { name: "Search by meaning", cost: "1 embedding · 0 LLM · ≈ 0.1 s", detail: "Press Enter: the server turns the free text into a vector, and your browser ranks the filtered movies by meaning." },
   assistant: { name: "Assistant", cost: "2-5 LLM calls · ≈ 5-10 s", detail: "Press Enter: the assistant searches, reads and decides in up to 5 steps. You see each step." },
@@ -99,10 +104,11 @@ interface MovieSearchProps {
 function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleDev }: MovieSearchProps) {
   const [query, setQuery] = useState(EXAMPLES[2]!);
   const [removed, setRemoved] = useState<ReadonlySet<string>>(new Set());
-  const { watched, getWatched, markWatched, clear } = useWatched();
+  const { watched, getWatched, markWatched, unmark, clear } = useWatched();
   const inputRef = useRef<HTMLInputElement>(null);
   const seenSigs = useRef<Set<string>>(new Set());
   const byId = useMemo(() => new Map(catalog.map((m) => [m.id, m])), [catalog]);
+  const titleIndex = useMemo(() => buildTitleIndex(catalog), [catalog]);
 
   // Search data loads after the page appears, so typing and filters work first.
   const vectorsRef = useRef<Promise<VectorIndex> | null>(null);
@@ -158,10 +164,18 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
   }, [query, config]);
   const chips = parsed.chips.filter((c) => !removed.has(c.sig));
   const ruleDecision = decideRoute({ chips, leftover: parsed.leftover }, MOVIE_ROUTER_OPTIONS);
+  // Lookups and actions on our own data come first and never use the LLM.
+  const [ignoreLookup, setIgnoreLookup] = useState(false);
+  const detected = useMemo(() => detectLookup(query, titleIndex), [query, titleIndex]);
+  const lookup = ignoreLookup ? null : detected;
   // Rule A: during a conversation, words that refer back ("those", "shorter") make it a follow-up for the assistant.
   const [ignoreFollowUp, setIgnoreFollowUp] = useState(false);
-  const followUp = !ignoreFollowUp && ruleDecision.route !== "assistant" && turns.some((t) => t.status === "done") && isFollowUp(query);
-  const decision: { route: Route; reason: string } = followUp ? { route: "assistant", reason: "Follow-up to the conversation" } : ruleDecision;
+  const followUp = !lookup && !ignoreFollowUp && ruleDecision.route !== "assistant" && turns.some((t) => t.status === "done") && isFollowUp(query);
+  const decision: { route: AppRoute; reason: string } = lookup
+    ? { route: "lookup", reason: `Lookup: ${describeLookup(lookup)}` }
+    : followUp
+      ? { route: "assistant", reason: "Follow-up to the conversation" }
+      : ruleDecision;
   const deferredChips = useDeferredValue(chips);
   const live = useMemo(() => {
     // Same filter as the assistant's search_movies: chips become hard filters.
@@ -262,6 +276,38 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
       currentEntry.current = null;
     }
   };
+  // Lookups (Level 2 workflows): answered by code. Read-only ones show while typing; the rest run on Enter.
+  const [lookupResult, setLookupResult] = useState<{ query: string; text: string; undo?: () => void } | null>(null);
+  const watchedListText = () => {
+    const titles = [...watched].map((id) => byId.get(id)).filter((m): m is Movie => !!m).reverse().map((m) => `${m.title} (${m.year})`);
+    return titles.length ? `You have marked ${titles.length} movie${titles.length === 1 ? "" : "s"} as watched${titles.length > 20 ? " (latest 20)" : ""}:\n${titles.slice(0, 20).join("\n")}` : "You have not marked any movies as watched in this browser.";
+  };
+  const liveLookupText = lookup && !RUNS_ON_ENTER.has(lookup.kind) ? (lookup.kind === "watched-list" ? watchedListText() : answerFromCatalog(lookup)) : null;
+  const runLookup = async (l: Lookup) => {
+    const entry = dev.start("lookup", query);
+    logRules(entry);
+    const started = performance.now();
+    const m = l.movie;
+    let result: { text: string; undo?: () => void };
+    if (l.kind === "about" && m) {
+      result = { text: aboutAnswer(m, (await loadStories([m.id]))[0]) };
+    } else if (l.kind === "mark" && m) {
+      const already = watched.has(m.id);
+      markWatched(m.id);
+      result = already ? { text: `${m.title} (${m.year}) was already on your watched list.` } : { text: `Marked ${m.title} (${m.year}) as watched.`, undo: () => unmark(m.id) };
+    } else if (l.kind === "unmark" && m) {
+      const was = watched.has(m.id);
+      unmark(m.id);
+      result = was ? { text: `Removed ${m.title} (${m.year}) from your watched list.`, undo: () => markWatched(m.id) } : { text: `${m.title} (${m.year}) was not on your watched list.` };
+    } else {
+      result = { text: liveLookupText ?? "" };
+    }
+    dev.add(entry, { stage: "rules", label: "Answered by code", detail: `${l.kind}${l.kind === "about" ? " · 1 story file" : ""} · no LLM`, ms: Math.round(performance.now() - started) });
+    dev.finish(entry);
+    setLookupResult({ query, ...result });
+  };
+  const lookupText = lookupResult?.query === query ? lookupResult : liveLookupText ? { text: liveLookupText } : null;
+
   const resetConversation = () => {
     history.current = [];
     setTurns([]);
@@ -272,6 +318,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
     setRemoved(new Set());
     setSearchError(null);
     setIgnoreFollowUp(false);
+    setIgnoreLookup(false);
   };
   const removeChip = (chip: Chip) => {
     setRemoved(new Set([...removed, chip.sig]));
@@ -288,7 +335,8 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (busy) return;
-    if (decision.route === "assistant") void runAssistant();
+    if (decision.route === "lookup" && lookup) void runLookup(lookup);
+    else if (decision.route === "assistant") void runAssistant();
     else if (decision.route === "semantic") void runSearch();
   };
 
@@ -327,6 +375,12 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
                 </span>
               );
             })}
+            {lookup && (
+              <span className="chip lookup">
+                <span className="kind">lookup</span><span className="val">{describeLookup(lookup)}</span>
+                <button type="button" className="x" aria-label="Remove lookup" onClick={() => setIgnoreLookup(true)}>×</button>
+              </span>
+            )}
             {followUp && (
               <span className="chip task">
                 <span className="kind">task</span><span className="val">follow-up</span>
@@ -341,7 +395,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
                 <span className="kind">complete</span><span className="val">{parsed.suggestion.to}?</span>
               </button>
             )}
-            {!chips.length && !followUp && !parsed.leftover.length && !parsed.suggestion && <span className="placeholder">Chips appear here as you type.</span>}
+            {!chips.length && !followUp && !lookup && !parsed.leftover.length && !parsed.suggestion && <span className="placeholder">Chips appear here as you type.</span>}
           </div>
         </div>
 
@@ -359,6 +413,17 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
             ))}
           </div>
         </form>
+
+        {lookup && lookupText && (
+          <section className="lookup-answer" aria-live="polite">
+            <p>{lookupText.text}</p>
+            {lookup.others.length > 0 && <p className="note">Also in the catalog: {lookup.others.map((m) => `${m.title} (${m.year})`).join(", ")}. Add the year to pick one.</p>}
+            {"undo" in lookupText && lookupText.undo && (
+              <button type="button" className="linkish" onClick={() => { lookupText.undo!(); setLookupResult(null); }}>Undo</button>
+            )}
+          </section>
+        )}
+        {lookup && !lookupText && <p className="note">Press Enter to {lookup.kind === "about" ? "show the story" : lookup.kind === "mark" ? "mark it as watched" : "remove it from your watched list"}. No AI involved.</p>}
 
         <AssistantPanel turns={turns} running={running} onStop={() => abort.current?.abort()} onReset={resetConversation} />
 

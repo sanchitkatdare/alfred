@@ -40,6 +40,14 @@ export function useWatched() {
       return next;
     });
   }, []);
+  const unmark = useCallback((id: number) => {
+    setIds((prev) => {
+      const next = prev.filter((x) => x !== id);
+      save(next);
+      latest.current = new Set(next);
+      return next;
+    });
+  }, []);
   const clear = useCallback(() => {
     save([]);
     latest.current = new Set();
@@ -47,5 +55,5 @@ export function useWatched() {
   }, []);
   const getWatched = useCallback(() => latest.current, []);
 
-  return { watched, getWatched, markWatched, clear };
+  return { watched, getWatched, markWatched, unmark, clear };
 }

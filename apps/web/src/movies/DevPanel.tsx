@@ -1,11 +1,10 @@
-import type { Route } from "@alfred/agent-harness";
 import { totals, type DevEntry, type Stage } from "./devlog";
 
 const STAGE_LABEL: Record<Stage, string> = { data: "Data", rules: "1 · Rules", search: "2 · Search", assistant: "3 · Assistant" };
 
 export interface LiveRules {
   parseMs: number;
-  route: { name: string; cost: string; detail: string; kind: Route };
+  route: { name: string; cost: string; detail: string; kind: string };
   reason: string;
   hints: object;
 }
