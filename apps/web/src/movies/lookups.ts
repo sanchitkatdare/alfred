@@ -6,7 +6,7 @@ import type { Movie } from "./catalog";
  * They never use the LLM. Each pattern matches the whole message, so compound requests
  * ("who directed X and is it worth watching?") still go to the assistant.
  */
-export type LookupKind = "director" | "cast" | "runtime" | "year" | "rating" | "genre" | "about" | "mark" | "unmark" | "watched-list";
+export type LookupKind = "director" | "cast" | "runtime" | "year" | "rating" | "genre" | "about" | "watched-list";
 
 export interface Lookup {
   kind: LookupKind;
@@ -16,8 +16,8 @@ export interface Lookup {
   others: Movie[];
 }
 
-/** Kinds that read or change state or fetch a file run on Enter; the rest answer while typing. */
-export const RUNS_ON_ENTER: ReadonlySet<LookupKind> = new Set(["about", "mark", "unmark"]);
+/** "about" fetches a story file, so it runs on Enter; the rest answer while typing. Marking watched happens only through the page's buttons. */
+export const RUNS_ON_ENTER: ReadonlySet<LookupKind> = new Set(["about"]);
 
 const T = "(.+?)"; // title slot (lazy, so "the dark knight as watched" keeps "as" out)
 const PATTERNS: [LookupKind, RegExp][] = [
@@ -35,9 +35,6 @@ const PATTERNS: [LookupKind, RegExp][] = [
   ["about", new RegExp(`^(?:what is|whats) ${T} about$`)],
   ["about", new RegExp(`^(?:tell me about|what happens in) ${T}$`)],
   ["about", new RegExp(`^(?:the )?(?:plot|synopsis|story|summary) of ${T}$`)],
-  ["mark", new RegExp(`^(?:mark|add) ${T} (?:as )?(?:watched|seen)$`)],
-  ["mark", new RegExp(`^i (?:just |already )?(?:watched|saw|have seen|ve seen|have watched|ve watched) ${T}$`)],
-  ["unmark", new RegExp(`^(?:unmark|remove) ${T} (?:from (?:my )?(?:watched|seen)(?: list)?|as watched)$`)],
 ];
 const WATCHED_LIST = /^(?:what|which)(?: movies| films)? have i (?:watched|seen)(?: so far)?$|^(?:show )?(?:me )?my (?:watched|seen)(?: list| movies)?$/;
 

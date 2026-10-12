@@ -67,7 +67,6 @@ const TASKS: Task[] = [
   { id: "story-fightclub", prompt: "What's Fight Club about? No spoilers.", tool: "get_movie_details", answer: /insomnia|soap|therapy|club/i },
   { id: "compare", prompt: "Which is shorter, Titanic or Forrest Gump?", tool: "search_movies", answer: /forrest gump/i },
   // Watched list
-  { id: "mark", prompt: "I just watched The Dark Knight. Mark it as watched.", tool: "mark_watched", check: (w, id) => w.has(id("The Dark Knight")) },
   { id: "unseen", prompt: "Which Christopher Nolan films haven't I seen yet?", watched: ["Inception", "Interstellar"], tool: "search_movies", args: (a) => people(a).includes("nolan"), answerNot: /inception|interstellar/i },
   // Honesty
   { id: "unknown-actor", prompt: "Recommend a movie starring Zzyzx Qwertyman.", tool: "search_movies", answer: /no |not find|couldn.t|could not|didn.t find|no movies|unable|not in/i },
@@ -101,7 +100,6 @@ for (let round = 1; round <= RUNS; round++) for (const model of MODELS) {
     const tools = createToolRegistry(createMovieTools({
       catalog,
       getWatched: () => watched,
-      markWatched: (id) => watched.add(id),
       search: async (text, ids) => rankByVector(vectorIndex, (await embedQuery(env, text)).body.vector, ids),
       details: loadStories,
       getHints: () => hints,

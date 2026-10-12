@@ -15,7 +15,6 @@ export interface MovieStory {
 export interface MovieToolContext {
   catalog: Movie[];
   getWatched(): ReadonlySet<number>;
-  markWatched(id: number): void;
   /** Semantic search: ranks the given movies by meaning, best first. */
   search(text: string, ids: number[]): Promise<{ id: number; score: number }[]>;
   /** Overview, tagline and keywords from the server. */
@@ -145,20 +144,7 @@ export function createMovieTools(ctx: MovieToolContext): Tool<any, any>[] {
     },
   });
 
-  const markWatched = defineTool({
-    name: "mark_watched",
-    description: "Mark a movie as watched by id.",
-    schema: z.object({ id: z.number().int() }),
-    idempotent: true,
-    async run({ id }) {
-      const movie = byId.get(id);
-      if (!movie) throw new Error(`Unknown movie id ${id}. Use an id from search_movies.`);
-      ctx.markWatched(id);
-      return { marked: { id, title: movie.title } };
-    },
-  });
-
-  return [searchMovies, getDetails, getWatched, markWatched];
+  return [searchMovies, getDetails, getWatched];
 }
 
 /** Tool specs for the server. Only schemas are read, so the context is never called. */
@@ -166,5 +152,5 @@ export function movieToolSpecs(): ToolSpec[] {
   const unused = () => {
     throw new Error("Tool specs only");
   };
-  return createToolRegistry(createMovieTools({ catalog: [], getWatched: unused, markWatched: unused, search: unused, details: unused })).specs();
+  return createToolRegistry(createMovieTools({ catalog: [], getWatched: unused, search: unused, details: unused })).specs();
 }

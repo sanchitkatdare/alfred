@@ -26,14 +26,12 @@ export function describeEvent(event: AgentEvent): Step | null {
     case "tool_call":
       return { kind: "tool", text: `${event.call.name} ${short(event.call.arguments)}` };
     case "tool_result": {
-      const r = event.result as { movies?: unknown[]; matches?: number; marked?: { title: string } } | unknown[];
+      const r = event.result as { movies?: unknown[]; matches?: number } | unknown[];
       const text = Array.isArray(r)
         ? `${r.length} item${r.length === 1 ? "" : "s"}`
         : r?.movies
           ? `${r.movies.length} movie${r.movies.length === 1 ? "" : "s"}${r.matches !== undefined ? ` of ${r.matches} matches` : ""}`
-          : r?.marked
-            ? `marked ${r.marked.title} as watched`
-            : "done";
+          : "done";
       return { kind: "result", text: `→ ${text}${event.cached ? " (repeat call, not run again)" : ""}` };
     }
     case "validation_error":

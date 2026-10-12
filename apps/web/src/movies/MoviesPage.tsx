@@ -143,7 +143,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
   const ask = useMemo(
     () =>
       createMovieAssistant({
-        catalog, getWatched, markWatched, search, details: loadStories,
+        catalog, getWatched, search, details: loadStories,
         onSearch: (r) =>
           dev.add(currentEntry.current, {
             stage: "search",
@@ -152,7 +152,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
             ms: r.ms,
           }),
       }),
-    [catalog, getWatched, markWatched, search, dev],
+    [catalog, getWatched, search, dev],
   );
 
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -277,7 +277,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
     }
   };
   // Lookups (Level 2 workflows): answered by code. Read-only ones show while typing; the rest run on Enter.
-  const [lookupResult, setLookupResult] = useState<{ query: string; text: string; undo?: () => void } | null>(null);
+  const [lookupResult, setLookupResult] = useState<{ query: string; text: string } | null>(null);
   const watchedListText = () => {
     const titles = [...watched].map((id) => byId.get(id)).filter((m): m is Movie => !!m).reverse().map((m) => `${m.title} (${m.year})`);
     return titles.length ? `You have marked ${titles.length} movie${titles.length === 1 ? "" : "s"} as watched${titles.length > 20 ? " (latest 20)" : ""}:\n${titles.slice(0, 20).join("\n")}` : "You have not marked any movies as watched in this browser.";
@@ -288,20 +288,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
     logRules(entry);
     const started = performance.now();
     const m = l.movie;
-    let result: { text: string; undo?: () => void };
-    if (l.kind === "about" && m) {
-      result = { text: aboutAnswer(m, (await loadStories([m.id]))[0]) };
-    } else if (l.kind === "mark" && m) {
-      const already = watched.has(m.id);
-      markWatched(m.id);
-      result = already ? { text: `${m.title} (${m.year}) was already on your watched list.` } : { text: `Marked ${m.title} (${m.year}) as watched.`, undo: () => unmark(m.id) };
-    } else if (l.kind === "unmark" && m) {
-      const was = watched.has(m.id);
-      unmark(m.id);
-      result = was ? { text: `Removed ${m.title} (${m.year}) from your watched list.`, undo: () => markWatched(m.id) } : { text: `${m.title} (${m.year}) was not on your watched list.` };
-    } else {
-      result = { text: liveLookupText ?? "" };
-    }
+    const result = l.kind === "about" && m ? { text: aboutAnswer(m, (await loadStories([m.id]))[0]) } : { text: liveLookupText ?? "" };
     dev.add(entry, { stage: "rules", label: "Answered by code", detail: `${l.kind}${l.kind === "about" ? " · 1 story file" : ""} · no LLM`, ms: Math.round(performance.now() - started) });
     dev.finish(entry);
     setLookupResult({ query, ...result });
@@ -418,12 +405,9 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
           <section className="lookup-answer" aria-live="polite">
             <p>{lookupText.text}</p>
             {lookup.others.length > 0 && <p className="note">Also in the catalog: {lookup.others.map((m) => `${m.title} (${m.year})`).join(", ")}. Add the year to pick one.</p>}
-            {"undo" in lookupText && lookupText.undo && (
-              <button type="button" className="linkish" onClick={() => { lookupText.undo!(); setLookupResult(null); }}>Undo</button>
-            )}
           </section>
         )}
-        {lookup && !lookupText && <p className="note">Press Enter to {lookup.kind === "about" ? "show the story" : lookup.kind === "mark" ? "mark it as watched" : "remove it from your watched list"}. No AI involved.</p>}
+        {lookup && !lookupText && <p className="note">Press Enter to show the story. No AI involved.</p>}
 
         <AssistantPanel turns={turns} running={running} onStop={() => abort.current?.abort()} onReset={resetConversation} />
 
@@ -455,11 +439,20 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
                 <button type="button" className="linkish" disabled={busy} onClick={() => void runAssistant()}>No, Alfred, not what I wanted. Ask Oracle instead</button>
               </p>
             )}
-            {(live.hiddenWatched > 0 || watched.size > 0) && (
-              <p className="note">
-                {live.hiddenWatched > 0 && `${live.hiddenWatched} hidden because you marked them watched. `}
-                {watched.size > 0 && <button type="button" className="linkish" onClick={clear}>Clear watched list ({watched.size})</button>}
-              </p>
+            {live.hiddenWatched > 0 && <p className="note">{live.hiddenWatched} hidden because you marked them watched.</p>}
+            {watched.size > 0 && (
+              <details className="watched">
+                <summary>Watched ({watched.size})</summary>
+                <ul>
+                  {[...watched].reverse().map((id) => byId.get(id)).filter((m): m is Movie => !!m).map((m) => (
+                    <li key={m.id}>
+                      <span>{m.title} ({m.year})</span>
+                      <button type="button" className="w" onClick={() => unmark(m.id)}>Remove</button>
+                    </li>
+                  ))}
+                </ul>
+                <button type="button" className="linkish" onClick={clear}>Clear all</button>
+              </details>
             )}
           </div>
 

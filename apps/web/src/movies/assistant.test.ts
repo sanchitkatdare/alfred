@@ -6,7 +6,6 @@ import { SAMPLE_CATALOG } from "./sample-catalog.fixture";
 const context = {
   catalog: SAMPLE_CATALOG,
   getWatched: () => new Set<number>(),
-  markWatched: () => {},
   search: async () => [],
   details: async (ids: number[]) => ids.map((id) => ({ id, overview: "x".repeat(2_000), tagline: "", keywords: "" })),
 };

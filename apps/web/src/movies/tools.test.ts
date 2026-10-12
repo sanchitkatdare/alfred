@@ -4,11 +4,9 @@ import { byRating, createMovieTools, movieToolSpecs, type MovieToolContext } fro
 
 function setup(watched: number[] = []) {
   const searches: { text: string; ids?: number[] }[] = [];
-  const marked: number[] = [];
   const ctx: MovieToolContext = {
     catalog: SAMPLE_CATALOG,
     getWatched: () => new Set(watched),
-    markWatched: (id) => marked.push(id),
     // Fake semantic search: reverse id order, so ranking differs from rating order.
     search: async (text, ids) => {
       searches.push({ text, ids });
@@ -18,7 +16,7 @@ function setup(watched: number[] = []) {
   };
   const tools = Object.fromEntries(createMovieTools(ctx).map((t) => [t.name, t]));
   const run = (name: string, args: unknown) => tools[name]!.run(tools[name]!.schema.parse(args), { callId: "t" });
-  return { run, searches, marked };
+  return { run, searches };
 }
 
 describe("search_movies", () => {
@@ -69,15 +67,9 @@ describe("other tools", () => {
     await expect(setup().run("get_movie_details", { ids: [999999] })).rejects.toThrow(/Use ids from search_movies/);
   });
 
-  it("marks a movie as watched", async () => {
-    const { run, marked } = setup();
-    expect(await run("mark_watched", { id: 4 })).toEqual({ marked: { id: 4, title: "Heat" } });
-    expect(marked).toEqual([4]);
-  });
-
   it("exposes JSON Schema specs for the server", () => {
     const specs = movieToolSpecs();
-    expect(specs.map((s) => s.name)).toEqual(["search_movies", "get_movie_details", "get_watched_list", "mark_watched"]);
+    expect(specs.map((s) => s.name)).toEqual(["search_movies", "get_movie_details", "get_watched_list"]);
     expect(JSON.stringify(specs[0]!.parameters)).toContain('"sci-fi"');
   });
 });
@@ -85,7 +77,7 @@ describe("other tools", () => {
 describe("search_movies with parser hints", () => {
   it("applies hints to filter searches but not to title lookups", async () => {
     const tools = Object.fromEntries(createMovieTools({
-      catalog: SAMPLE_CATALOG, getWatched: () => new Set(), markWatched: () => {},
+      catalog: SAMPLE_CATALOG, getWatched: () => new Set(),
       search: async () => [], details: async () => [],
       getHints: () => ({ excludeGenres: ["sci-fi"] }),
     }).map((t) => [t.name, t]));

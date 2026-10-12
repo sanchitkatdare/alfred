@@ -23,9 +23,7 @@ describe("detectLookup", () => {
     ["What is Memento about?", null],
     ["what is arrival about", "about:Arrival 2016"],
     ["tell me about the movie prisoners", "about:Prisoners 2013"],
-    ["Mark The Dark Knight as watched", "mark:The Dark Knight 2008"],
-    ["I just watched Heat", "mark:Heat 1995"],
-    ["remove heat from my watched list", "unmark:Heat 1995"],
+    ["Mark The Dark Knight as watched", null],
     ["What have I watched so far?", "watched-list: "],
   ])("%s", (q, expected) => {
     expect(detect(q)?.trim() ?? null).toBe(expected?.trim() ?? null);
