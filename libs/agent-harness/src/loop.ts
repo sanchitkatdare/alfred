@@ -32,7 +32,9 @@ export function createAgent(options: AgentOptions): Agent {
       const TRUNCATED = "…[truncated]";
       const reply = (call: ToolCall, content: string) => {
         const fits = !maxToolResultChars || content.length <= maxToolResultChars;
-        transcript.push({ role: "tool", toolCallId: call.id, content: fits ? content : content.slice(0, maxToolResultChars - TRUNCATED.length) + TRUNCATED });
+        const sent = fits ? content : content.slice(0, maxToolResultChars - TRUNCATED.length) + TRUNCATED;
+        transcript.push({ role: "tool", toolCallId: call.id, content: sent });
+        return { chars: sent.length, truncated: !fits };
       };
 
       for (let iteration = 1; iteration <= maxIterations; iteration++) {
@@ -40,8 +42,11 @@ export function createAgent(options: AgentOptions): Agent {
         emit({ type: "llm_request", iteration });
 
         let message: ChatMessage;
+        const started = Date.now();
         try {
-          message = (await provider.complete({ messages: transcript, tools: tools.specs(), signal })).message;
+          const response = await provider.complete({ messages: transcript, tools: tools.specs(), signal });
+          message = response.message;
+          emit({ type: "llm_response", iteration, ms: Date.now() - started, usage: response.usage, toolCalls: message.toolCalls?.length ?? 0 });
         } catch (e) {
           return fail(iteration, `LLM provider "${provider.name}" failed: ${errorText(e)}`);
         }
@@ -74,15 +79,13 @@ export function createAgent(options: AgentOptions): Agent {
           const key = tool.idempotent ? (tool.callKey?.(args) ?? `${tool.name}:${stableStringify(args)}`) : null;
           if (key && cache.has(key)) {
             const result = cache.get(key);
-            emit({ type: "tool_result", callId: call.id, result, cached: true });
-            reply(call, stableStringify(result));
+            emit({ type: "tool_result", callId: call.id, result, cached: true, ...reply(call, stableStringify(result)) });
             continue;
           }
           try {
             const result = await tool.run(args, { callId: call.id, signal });
             if (key) cache.set(key, result);
-            emit({ type: "tool_result", callId: call.id, result, cached: false });
-            reply(call, stableStringify(result));
+            emit({ type: "tool_result", callId: call.id, result, cached: false, ...reply(call, stableStringify(result)) });
           } catch (e) {
             const error = `Tool "${call.name}" failed: ${errorText(e)}`;
             emit({ type: "tool_error", call, error });

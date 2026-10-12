@@ -87,9 +87,12 @@ export interface RetryPolicy {
 
 export type AgentEvent =
   | { type: "llm_request"; iteration: number }
+  /** After each model call: duration and usage as reported by the provider. */
+  | { type: "llm_response"; iteration: number; ms: number; usage?: LLMResponse["usage"]; toolCalls: number }
   | { type: "tool_call"; call: ToolCall }
   | { type: "validation_error"; call: ToolCall; error: string; attempt: number }
-  | { type: "tool_result"; callId: string; result: unknown; cached: boolean }
+  /** `chars` is the size sent back to the model; `truncated` when maxToolResultChars cut it. */
+  | { type: "tool_result"; callId: string; result: unknown; cached: boolean; chars: number; truncated: boolean }
   | { type: "tool_error"; call: ToolCall; error: string }
   | { type: "final"; message: ChatMessage }
   | { type: "limit_reached"; iterations: number };

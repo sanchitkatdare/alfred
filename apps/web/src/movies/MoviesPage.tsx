@@ -1,7 +1,9 @@
-import { decideRoute, parse, type ChatMessage, type Chip, type ParserConfig, type Route } from "@alfred/agent-harness";
+import { decideRoute, parse, type AgentEvent, type ChatMessage, type Chip, type ParserConfig, type Route } from "@alfred/agent-harness";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import tmdbLogo from "../../../../assets/tmdb.svg";
 import { createEmbedClient, friendlyError } from "./api";
+import { DevPanel } from "./DevPanel";
+import { useDevLog, type DevLog } from "./devlog";
 import { AssistantPanel, describeEvent, type Turn } from "./AssistantPanel";
 import { createMovieAssistant } from "./assistant";
 import type { CatalogMeta, Movie } from "./catalog";
@@ -11,7 +13,7 @@ import { isFollowUp } from "./followups";
 import { chipsToSearchHints } from "./hints";
 import { byRating, filterCatalog } from "./tools";
 import { useWatched } from "./useWatched";
-import { rankByVector, vectorOf, type VectorIndex } from "./vectors";
+import { rankByVector, scoreParts, vectorOf, type VectorIndex } from "./vectors";
 
 const MAX_QUERY_CHARS = 300;
 
@@ -46,13 +48,55 @@ function blend(a: ArrayLike<number>, b: ArrayLike<number>): number[] {
   return Array.from(a, (x, i) => x / na + b[i]! / nb);
 }
 
+const short = (value: unknown, max = 160) => {
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+};
+
+/** Dev-mode line for each harness event; null for events the dev log does not show. */
+function devItemFor(e: AgentEvent) {
+  switch (e.type) {
+    case "llm_response":
+      return {
+        stage: "assistant" as const,
+        label: `Model call ${e.iteration}`,
+        detail: `${e.toolCalls} tool call${e.toolCalls === 1 ? "" : "s"}${e.usage ? ` · ${e.usage.inputTokens} in / ${e.usage.outputTokens} out tokens` : ""}`,
+        ms: e.ms,
+        neurons: e.usage?.neurons,
+        serverCall: true,
+      };
+    case "tool_call":
+      return { stage: "assistant" as const, label: `Tool: ${e.call.name}`, detail: `model asked for ${short(e.call.arguments)}` };
+    case "tool_result":
+      return { stage: "assistant" as const, label: "Tool result", detail: `${e.chars} characters sent to the model${e.truncated ? ", truncated" : ""}${e.cached ? ", repeat call (not run)" : ""}` };
+    case "validation_error":
+      return { stage: "assistant" as const, label: "Invalid tool call, sent back", detail: short(e.error.split("\n")[0]) };
+    case "tool_error":
+      return { stage: "assistant" as const, label: "Tool error", detail: e.error };
+    case "limit_reached":
+      return { stage: "assistant" as const, label: "Step limit reached", detail: `${e.iterations} model calls` };
+    default:
+      return null;
+  }
+}
+
 interface SemanticResult {
   query: string;
   movies: Movie[];
   ms: number;
 }
 
-function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Movie[]; config: ParserConfig }) {
+interface MovieSearchProps {
+  meta: CatalogMeta;
+  catalog: Movie[];
+  config: ParserConfig;
+  dev: DevLog;
+  loadEntry: number | null;
+  devMode: boolean;
+  onToggleDev(): void;
+}
+
+function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleDev }: MovieSearchProps) {
   const [query, setQuery] = useState(EXAMPLES[2]!);
   const [removed, setRemoved] = useState<ReadonlySet<string>>(new Set());
   const { watched, getWatched, markWatched, clear } = useWatched();
@@ -62,33 +106,56 @@ function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Mo
 
   // Search data loads after the page appears, so typing and filters work first.
   const vectorsRef = useRef<Promise<VectorIndex> | null>(null);
+  const reportLoad = useCallback(
+    (file: string, bytes: number, ms: number) => dev.add(loadEntry, { stage: "data", label: file, detail: `${(bytes / 1e6).toFixed(2)} MB`, ms }),
+    [dev, loadEntry],
+  );
   const getVectors = useCallback(() => {
     if (!vectorsRef.current) {
-      const p = loadVectors(meta);
+      const p = loadVectors(meta, reportLoad);
       vectorsRef.current = p;
       p.catch(() => vectorsRef.current === p && (vectorsRef.current = null));
     }
     return vectorsRef.current;
-  }, [meta]);
+  }, [meta, reportLoad]);
   const [synopses, setSynopses] = useState<Record<string, string>>({});
   useEffect(() => {
     const t = setTimeout(() => {
-      getVectors().catch(() => {});
-      loadSynopses().then(setSynopses).catch(() => {});
+      void Promise.allSettled([getVectors(), loadSynopses(reportLoad).then(setSynopses)]).then(() => loadEntry !== null && dev.finish(loadEntry));
     }, 300);
     return () => clearTimeout(t);
-  }, [getVectors]);
+  }, [getVectors, reportLoad, dev, loadEntry]);
 
-  const embed = useMemo(() => createEmbedClient(), []);
+  // The dev-log entry that background reports (embedding, tool searches) belong to.
+  const currentEntry = useRef<number | null>(null);
+
+  const embed = useMemo(
+    () => createEmbedClient(undefined, (r) => dev.add(currentEntry.current, { stage: "search", label: r.cached ? "Query vector from browser cache" : "Query vector from server", detail: `"${short(r.text, 60)}"${r.neurons !== undefined ? " · neurons estimated from tokens" : ""}`, ms: r.ms, neurons: r.neurons, serverCall: !r.cached })),
+    [dev],
+  );
   const search = useCallback(async (text: string, ids: number[]) => rankByVector(await getVectors(), await embed(text), ids), [embed, getVectors]);
   const ask = useMemo(
-    () => createMovieAssistant({ catalog, getWatched, markWatched, search, details: loadStories }),
-    [catalog, getWatched, markWatched, search],
+    () =>
+      createMovieAssistant({
+        catalog, getWatched, markWatched, search, details: loadStories,
+        onSearch: (r) =>
+          dev.add(currentEntry.current, {
+            stage: "search",
+            label: "search_movies filters",
+            detail: `model: ${short(r.modelArgs, 120)} → applied after hints: ${short(r.appliedArgs, 120)} · ${r.matches} matches, ${r.returned} returned`,
+            ms: r.ms,
+          }),
+      }),
+    [catalog, getWatched, markWatched, search, dev],
   );
 
   const [turns, setTurns] = useState<Turn[]>([]);
   const running = turns.at(-1)?.status === "running";
-  const parsed = useMemo(() => parse(query, config), [query, config]);
+  const { parsed, parseMs } = useMemo(() => {
+    const started = performance.now();
+    const result = parse(query, config);
+    return { parsed: result, parseMs: performance.now() - started };
+  }, [query, config]);
   const chips = parsed.chips.filter((c) => !removed.has(c.sig));
   const ruleDecision = decideRoute({ chips, leftover: parsed.leftover }, MOVIE_ROUTER_OPTIONS);
   // Rule A: during a conversation, words that refer back ("those", "shorter") make it a follow-up for the assistant.
@@ -110,10 +177,18 @@ function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Mo
   const [semantic, setSemantic] = useState<SemanticResult | null>(null);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const logRules = (id: number) => {
+    dev.add(id, { stage: "rules", label: `Route: ${decision.route}`, detail: `${decision.reason} · parsed in ${parseMs.toFixed(2)} ms` });
+    const hints = chipsToSearchHints(chips);
+    if (Object.keys(hints).length) dev.add(id, { stage: "rules", label: "Hard filters from chips", detail: short(hints) });
+  };
   const runSearch = async () => {
     setSearching(true);
     setSearchError(null);
     const started = performance.now();
+    const entry = dev.start("search", query);
+    currentEntry.current = entry;
+    logRules(entry);
     try {
       const similar = chips.find((c) => c.kind === "similar");
       const similarId = similar ? Number(similar.id) : null;
@@ -123,13 +198,28 @@ function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Mo
       const textVector = text ? await embed(text) : null;
       const queryVector = textVector && movieVector ? blend(textVector, movieVector) : (textVector ?? movieVector);
       if (!queryVector) return;
+      if (movieVector) dev.add(entry, { stage: "search", label: "Movie vector", detail: `stored vector of ${byId.get(similarId!)?.title}, no server call` });
       const ids = filterCatalog(catalog, chipsToSearchHints(chips), watched).map((m) => m.id).filter((id) => id !== similarId);
+      dev.add(entry, { stage: "search", label: "Filters", detail: `${ids.length.toLocaleString()} of ${catalog.length.toLocaleString()} movies left` });
+      const rankStarted = performance.now();
       const ranked = rankByVector(index, queryVector, ids, 10);
+      dev.add(entry, { stage: "search", label: "Ranking in the browser", detail: `${ids.length.toLocaleString()} vectors`, ms: Math.round(performance.now() - rankStarted) });
+      dev.add(entry, {
+        stage: "search",
+        label: "Top results (meaning + popularity)",
+        detail: ranked.slice(0, 5).map((r) => {
+          const p = scoreParts(index, r.id, r.score);
+          return `${byId.get(r.id)?.title} ${p.similarity.toFixed(2)}+${p.bonus.toFixed(2)}`;
+        }).join(" · "),
+      });
       setSemantic({ query, movies: ranked.map((r) => byId.get(r.id)!), ms: Math.round(performance.now() - started) });
     } catch (e) {
       setSearchError(friendlyError(e));
+      dev.add(entry, { stage: "search", label: "Error", detail: friendlyError(e) });
     } finally {
       setSearching(false);
+      dev.finish(entry);
+      currentEntry.current = null;
     }
   };
 
@@ -143,6 +233,9 @@ function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Mo
     const update = (change: (t: Turn) => Turn) => setTurns((all) => all.map((t, i) => (i === turnIndex ? change(t) : t)));
     setTurns((all) => [...all, { question, steps: [], status: "running" }]);
     abort.current = new AbortController();
+    const entry = dev.start("assistant", question);
+    currentEntry.current = entry;
+    logRules(entry);
     try {
       const result = await ask(question, {
         history: history.current,
@@ -151,6 +244,8 @@ function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Mo
         onEvent: (e) => {
           const step = describeEvent(e);
           if (step) update((t) => ({ ...t, steps: [...t.steps, step] }));
+          const item = devItemFor(e);
+          if (item) dev.add(entry, item);
         },
       });
       if (result.status === "done") {
@@ -162,6 +257,9 @@ function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Mo
       }
     } catch (e) {
       update((t) => ({ ...t, status: "failed", error: friendlyError(e) }));
+    } finally {
+      dev.finish(entry);
+      currentEntry.current = null;
     }
   };
   const resetConversation = () => {
@@ -199,12 +297,19 @@ function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Mo
   const shown = showSemantic ? semantic.movies.filter((m) => !watched.has(m.id)) : live.movies.slice(0, 10);
 
   return (
-    <main className="page">
+    <main className={`page${devMode ? " with-dev" : ""}`}>
       <header className="head">
-        <h1>Alfred Movies</h1>
+        <div className="head-row">
+          <h1>Alfred Movies</h1>
+          <button type="button" className="btn ghost dev-toggle" aria-pressed={devMode} onClick={onToggleDev}>
+            Dev mode: {devMode ? "on" : "off"}
+          </button>
+        </div>
         <p className="muted">Type a request. Rules parse it in the browser as you type. Catalog of {catalog.length.toLocaleString()} movies from TMDB.</p>
       </header>
 
+      <div className="layout">
+      <div className="main-col">
       <section className="sim" aria-label="Movie search">
         <div className="understood">
           <span className="eyebrow">Understood so far · select × to remove</span>
@@ -294,12 +399,6 @@ function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Mo
           </div>
 
           <div className="panel">
-            <h2>Route</h2>
-            <div className={`route ${decision.route}`}>
-              <div className="name">{route.name}</div>
-              {route.cost && <div className="cost">{route.cost}</div>}
-              <p>{decision.reason}. {route.detail}</p>
-            </div>
             <h2>Parser trace</h2>
             <ul className="trace">
               {parsed.trace.length ? parsed.trace.map((t, i) => <li key={i}>{t}</li>) : <li>Nothing parsed yet.</li>}
@@ -307,6 +406,15 @@ function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Mo
           </div>
         </div>
       </section>
+
+      </div>
+      {devMode && (
+        <DevPanel
+          live={{ parseMs, route: { ...route, kind: decision.route }, reason: decision.reason, hints: chipsToSearchHints(chips) }}
+          entries={dev.entries}
+        />
+      )}
+      </div>
 
       <footer className="foot">
         <p><img src={tmdbLogo} alt="TMDB" height={10} /> This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
@@ -318,16 +426,51 @@ function MovieSearch({ meta, catalog, config }: { meta: CatalogMeta; catalog: Mo
 
 type CatalogState = { status: "loading" } | { status: "missing" } | { status: "ready"; meta: CatalogMeta; catalog: Movie[]; config: ParserConfig };
 
+const DEV_MODE_KEY = "alfred.devMode";
+function readDevMode(): boolean {
+  try {
+    return localStorage.getItem(DEV_MODE_KEY) === "on";
+  } catch {
+    return false;
+  }
+}
+
 /** Loads the seeded catalog, then shows the search. */
 export function MoviesPage() {
   const [state, setState] = useState<CatalogState>({ status: "loading" });
+  const dev = useDevLog();
+  const [loadEntry, setLoadEntry] = useState<number | null>(null);
+  const [devMode, setDevMode] = useState(readDevMode);
+  const toggleDev = () =>
+    setDevMode((on) => {
+      try {
+        localStorage.setItem(DEV_MODE_KEY, on ? "off" : "on");
+      } catch {
+        // Storage blocked: the toggle still works for this visit.
+      }
+      return !on;
+    });
+  // React's StrictMode runs effects twice in development; load (and log) the catalog once.
+  const loadStarted = useRef(false);
   useEffect(() => {
-    loadCatalog()
-      .then(({ meta, catalog }) => setState({ status: "ready", meta, catalog, config: buildMovieParserConfig(catalog) }))
+    if (loadStarted.current) return;
+    loadStarted.current = true;
+    const entry = dev.start("load", "Page load");
+    setLoadEntry(entry);
+    const report = (file: string, bytes: number, ms: number) => dev.add(entry, { stage: "data", label: file, detail: `${(bytes / 1e6).toFixed(2)} MB`, ms });
+    loadCatalog(report)
+      .then(({ meta, catalog }) => {
+        const started = performance.now();
+        const config = buildMovieParserConfig(catalog);
+        dev.add(entry, { stage: "rules", label: "Parser dictionaries built", detail: `${catalog.length.toLocaleString()} movies`, ms: Math.round(performance.now() - started) });
+        setState({ status: "ready", meta, catalog, config });
+      })
       .catch(() => setState({ status: "missing" }));
-  }, []);
+  }, [dev.start, dev.add]);
 
-  if (state.status === "ready") return <MovieSearch meta={state.meta} catalog={state.catalog} config={state.config} />;
+  if (state.status === "ready") {
+    return <MovieSearch meta={state.meta} catalog={state.catalog} config={state.config} dev={dev} loadEntry={loadEntry} devMode={devMode} onToggleDev={toggleDev} />;
+  }
   return (
     <main className="page">
       <header className="head">

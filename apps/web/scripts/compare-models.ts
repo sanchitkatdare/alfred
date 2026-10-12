@@ -7,7 +7,7 @@
  *
  * Default models: the chosen model and its fallback. Pass other model IDs to compare them.
  * Parser hints are on by default, as in the app: the rule parser's filters apply to every search.
- * --no-hints measures the model alone.
+ * --no-hints measures the model alone. --only <prefix,...> runs only tasks whose id starts with one of the prefixes.
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
@@ -23,7 +23,7 @@ import { createStoryLoader, type StoryShard } from "../src/movies/stories.ts";
 import { createMovieTools } from "../src/movies/tools.ts";
 import { createVectorIndex, rankByVector } from "../src/movies/vectors.ts";
 
-const { values: cli, positionals } = parseArgs({ allowPositionals: true, allowNegative: true, options: { runs: { type: "string", default: "1" }, hints: { type: "boolean", default: true } } });
+const { values: cli, positionals } = parseArgs({ allowPositionals: true, allowNegative: true, options: { runs: { type: "string", default: "1" }, hints: { type: "boolean", default: true }, only: { type: "string" } } });
 const HINTS = cli.hints;
 const RUNS = Number(cli.runs);
 const MODELS = positionals.length ? positionals : ["@cf/ibm-granite/granite-4.0-h-micro", "@cf/google/gemma-4-26b-a4b-it"];
@@ -71,6 +71,12 @@ const TASKS: Task[] = [
   { id: "unseen", prompt: "Which Christopher Nolan films haven't I seen yet?", watched: ["Inception", "Interstellar"], tool: "search_movies", args: (a) => people(a).includes("nolan"), answerNot: /inception|interstellar/i },
   // Honesty
   { id: "unknown-actor", prompt: "Recommend a movie starring Zzyzx Qwertyman.", tool: "search_movies", answer: /no |not find|couldn.t|could not|didn.t find|no movies|unable|not in/i },
+  // Famous scenes that TMDB's overview and keywords do not describe (recall, then verify by title)
+  { id: "recall-top", prompt: "That movie with the spinning top.", tool: "search_movies", answer: /inception/i },
+  { id: "recall-deadpeople", prompt: "The movie where the kid says 'I see dead people'.", tool: "search_movies", answer: /sixth sense/i },
+  { id: "recall-babe", prompt: "The movie where a guy keeps waking up to 'I Got You Babe' on the radio.", tool: "search_movies", answer: /groundhog day/i },
+  { id: "recall-johnny", prompt: "The one where he yells 'Here's Johnny!' through a broken door.", tool: "search_movies", answer: /shining/i },
+  { id: "unknown-scene", prompt: "The movie where a purple elephant sings opera on the moon.", tool: "search_movies", answer: /not sure|couldn.t find|could not find|no (movie|match)|not in the catalog|unable|don.t know/i },
 ];
 
 interface TaskResult { model: string; run: number; task: string; pass: boolean; why: string; ms: number; neurons: number; llmCalls: number; validationErrors: number; answer: string }
@@ -87,8 +93,9 @@ const proxy = await getPlatformProxy<Env>({ configPath: "wrangler.jsonc" });
 const env = proxy.env;
 const results: TaskResult[] = [];
 
+const SELECTED = cli.only ? TASKS.filter((t) => cli.only!.split(",").some((p) => t.id.startsWith(p))) : TASKS;
 for (let round = 1; round <= RUNS; round++) for (const model of MODELS) {
-  for (const task of TASKS) {
+  for (const task of SELECTED) {
     const watched = new Set((task.watched ?? []).map(byTitle));
     const hints: SearchHints = HINTS ? chipsToSearchHints(parse(task.prompt, parserConfig).chips) : {};
     const tools = createToolRegistry(createMovieTools({
@@ -141,7 +148,7 @@ for (let round = 1; round <= RUNS; round++) for (const model of MODELS) {
 
 const short = (m: string) => m.split("/").pop()!;
 const pct = (xs: number[], q: number) => [...xs].sort((a, b) => a - b)[Math.min(xs.length - 1, Math.floor(q * xs.length))] ?? 0;
-console.log(`\n${TASKS.length} tasks x ${RUNS} run(s)${HINTS ? ", parser hints on" : ""}\nModel                      pass        avg time  p90 time  avg neurons  validation errors`);
+console.log(`\n${SELECTED.length} tasks x ${RUNS} run(s)${HINTS ? ", parser hints on" : ""}\nModel                      pass        avg time  p90 time  avg neurons  validation errors`);
 for (const model of MODELS) {
   const rs = results.filter((r) => r.model === model);
   const avg = (f: (r: TaskResult) => number) => rs.reduce((s, r) => s + f(r), 0) / rs.length;
@@ -149,7 +156,7 @@ for (const model of MODELS) {
   console.log(`${short(model).padEnd(26)} ${`${passed}/${rs.length}`.padEnd(6)} ${String(Math.round((passed / rs.length) * 100)).padStart(3)}%  ${(avg((r) => r.ms) / 1000).toFixed(1).padStart(6)} s  ${(pct(rs.map((r) => r.ms), 0.9) / 1000).toFixed(1).padStart(6)} s  ${avg((r) => r.neurons).toFixed(1).padStart(9)}  ${rs.reduce((s, r) => s + r.validationErrors, 0)}`);
 }
 console.log(`\nPasses per task (out of ${RUNS})\n${"task".padEnd(16)}${MODELS.map((m) => short(m).slice(0, 14).padEnd(16)).join("")}`);
-for (const task of TASKS) {
+for (const task of SELECTED) {
   console.log(`${task.id.padEnd(16)}${MODELS.map((m) => String(results.filter((r) => r.model === m && r.task === task.id && r.pass).length).padEnd(16)).join("")}`);
 }
 const total = results.reduce((s, r) => s + r.neurons, 0);

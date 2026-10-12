@@ -13,17 +13,33 @@ const EMBED_CACHE_SIZE = 50;
  * Turns query text into a vector via /api/movies/embed. Keeps the 50 most recent queries, so repeating
  * a search costs no server call. Failed requests are not cached.
  */
-export function createEmbedClient(fetchImpl: typeof fetch = (...args) => fetch(...args)) {
+export interface EmbedReport {
+  text: string;
+  cached: boolean;
+  ms: number;
+  /** Estimated by the server; absent for cached vectors. */
+  neurons?: number;
+}
+
+export function createEmbedClient(fetchImpl: typeof fetch = (...args) => fetch(...args), onResult?: (report: EmbedReport) => void) {
   const cache = new Map<string, Promise<number[]>>();
+  const neuronsOf = new WeakMap<Promise<number[]>, number>();
   return (text: string): Promise<number[]> => {
     const key = text.trim().toLowerCase();
+    const started = performance.now();
     let vector = cache.get(key);
+    const cached = !!vector;
     if (vector) {
       cache.delete(key); // move to the newest position
     } else {
-      vector = post<{ vector: number[] }>("/api/movies/embed", { text }, fetchImpl).then((r) => r.vector);
+      const request = post<{ vector: number[]; usage?: { neurons: number } }>("/api/movies/embed", { text }, fetchImpl);
+      vector = request.then((r) => r.vector);
+      const v = vector;
+      request.then((r) => r.usage && neuronsOf.set(v, r.usage.neurons)).catch(() => {});
       vector.catch(() => cache.delete(key));
     }
+    const v = vector;
+    v.then(() => onResult?.({ text, cached, ms: Math.round(performance.now() - started), ...(cached ? {} : { neurons: neuronsOf.get(v) }) })).catch(() => {});
     cache.set(key, vector);
     if (cache.size > EMBED_CACHE_SIZE) cache.delete(cache.keys().next().value!);
     return vector;

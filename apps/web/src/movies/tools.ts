@@ -22,6 +22,8 @@ export interface MovieToolContext {
   details(ids: number[]): Promise<MovieStory[]>;
   /** Filters the rule parser took from the user's message. Applied to every search except title lookups. */
   getHints?(): SearchHints;
+  /** Dev mode: the model's arguments, the arguments applied after hints, and the result. */
+  onSearch?(report: { modelArgs: SearchArgs; appliedArgs: SearchArgs; matches: number; returned: number; ms: number }): void;
 }
 
 const genre = z.enum(GENRE_IDS as [string, ...string[]]);
@@ -104,6 +106,7 @@ export function createMovieTools(ctx: MovieToolContext): Tool<any, any>[] {
     description: "Find movies in the catalog by filters and an optional free-text description. Returns at most `limit` movies, best first.",
     schema: searchSchema,
     async run(modelArgs) {
+      const started = performance.now();
       const a = modelArgs.title ? modelArgs : mergeSearchHints(modelArgs, ctx.getHints?.() ?? {});
       const filtered = filterCatalog(ctx.catalog, a, ctx.getWatched());
       const limit = a.limit ?? 5;
@@ -115,7 +118,9 @@ export function createMovieTools(ctx: MovieToolContext): Tool<any, any>[] {
       } else {
         ordered = [...filtered].sort(byRating);
       }
-      return { matches: filtered.length, movies: ordered.slice(0, limit).map(summary) };
+      const movies = ordered.slice(0, limit).map(summary);
+      ctx.onSearch?.({ modelArgs, appliedArgs: a, matches: filtered.length, returned: movies.length, ms: Math.round(performance.now() - started) });
+      return { matches: filtered.length, movies };
     },
   });
 

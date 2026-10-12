@@ -66,3 +66,10 @@ export function vectorOf(index: VectorIndex, id: number): Int8Array | null {
   const r = index.rowOf.get(id);
   return r === undefined ? null : index.rows.subarray(r * VECTOR_DIMENSIONS, (r + 1) * VECTOR_DIMENSIONS);
 }
+
+/** Splits a ranking score into meaning similarity and popularity bonus, for dev mode. */
+export function scoreParts(index: VectorIndex, id: number, score: number): { similarity: number; bonus: number } {
+  const r = index.rowOf.get(id);
+  const bonus = r === undefined ? 0 : index.boosts[r]!;
+  return { similarity: score - bonus, bonus };
+}

@@ -125,6 +125,15 @@ describe("agent loop", () => {
     expect(result).toMatchObject({ status: "failed", error: 'LLM provider "scripted" failed: quota exceeded' });
   });
 
+  it("reports each model call's usage and each tool result's size", async () => {
+    const { agent, events } = setup([toolCalls(["search_catalog", { genre: "crime", limit: 2 }]), say("ok")]);
+    await agent.run("x");
+    const responses = events.filter((e) => e.type === "llm_response");
+    expect(responses.map((e) => e.type === "llm_response" && e.toolCalls)).toEqual([1, 0]);
+    const result = events.find((e) => e.type === "tool_result");
+    expect(result).toMatchObject({ chars: '{"ids":["crime-0","crime-1"]}'.length, truncated: false });
+  });
+
   it("cuts long tool results to the configured limit", async () => {
     const { agent, provider } = setup([toolCalls(["search_catalog", { genre: "crime", limit: 10 }]), say("ok")], { maxToolResultChars: 60 });
     await agent.run("x");
