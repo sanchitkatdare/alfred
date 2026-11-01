@@ -149,7 +149,8 @@ function fuzzyLookup(dict: Dictionary, single: string, pair: string | null): { e
  * typo-tolerant dictionary, connectors, stop words, first-name suggestion, leftover.
  *
  * Negation scope: a negation word applies to the next dictionary entity. It continues through
- * "or", "nor" and commas ("not sci-fi or horror"). Any other word ends it.
+ * "or", "nor" and commas ("not sci-fi or horror"). Any other word ends it. A rule match right after
+ * a negation word stays free text, because rules have no opposite filter.
  */
 export function parse(text: string, config: ParserConfig): ParseResult {
   const tokens = tokenize(text);
@@ -210,8 +211,15 @@ export function parse(text: string, config: ParserConfig): ParseResult {
       if (ruleHit) break;
     }
     if (ruleHit) {
-      for (const c of ruleHit.chips ?? []) chips.push(toChip(c));
-      trace.push(ruleHit.trace);
+      const consumed = tokens.slice(i, i + Math.max(1, ruleHit.consumed));
+      if (neg && !negHit && ruleHit.chips?.length) {
+        // A rule's filter cannot be inverted. Applying it would give the opposite of what was asked.
+        leftover.push(...consumed.filter((t) => !stop.has(toKey(t))));
+        trace.push(`Exclusion did not apply: ${quote(i, i + consumed.length)} cannot be excluded, so it stays free text`);
+      } else {
+        for (const c of ruleHit.chips ?? []) chips.push(toChip(c));
+        trace.push(ruleHit.trace);
+      }
       i += Math.max(1, ruleHit.consumed);
       clearNeg();
       continue;

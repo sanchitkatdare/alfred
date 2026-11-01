@@ -28,6 +28,19 @@ describe("run time limit", () => {
     expect(await run).toMatchObject({ status: "failed" });
   });
 
+  it("runs no further tool after a user abort", async () => {
+    const controller = new AbortController();
+    const ran: string[] = [];
+    const tool = (name: string, run: () => Promise<string>) => defineTool({ name, description: name, schema: z.object({}), run: async () => (ran.push(name), run()) });
+    const agent = createAgent({
+      ...base,
+      tools: createToolRegistry([tool("first", async () => (controller.abort(), "ok")), tool("second", async () => "ok")]),
+      provider: createScriptedProvider([toolCalls(["first", {}], ["second", {}])]),
+    });
+    expect(await agent.run("x", { signal: controller.signal })).toMatchObject({ status: "failed", error: "Aborted" });
+    expect(ran).toEqual(["first"]);
+  });
+
   it("does not limit a run that finishes in time", async () => {
     const agent = createAgent({ ...base, maxRunMs: 1_000, provider: createScriptedProvider([say("ok")]) });
     expect((await agent.run("x")).status).toBe("done");

@@ -25,6 +25,8 @@ export function createAgent(options: AgentOptions): Agent {
       /** Providers and tools may ignore the signal, so the run does not wait for them after an abort. */
       const orAbort = <T>(work: Promise<T>): Promise<T> =>
         signal ? Promise.race([work, new Promise<never>((_, reject) => signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true }))]) : work;
+      const stopped = (iterations: number): AgentResult | null =>
+        deadline?.aborted ? timedOut(iterations) : signal?.aborted ? fail(iterations, "Aborted") : null;
       const timedOut = (iterations: number): AgentResult => {
         emit({ type: "timed_out", ms: maxRunMs! });
         return { status: "timed_out", transcript, iterations };
@@ -46,8 +48,8 @@ export function createAgent(options: AgentOptions): Agent {
       };
 
       for (let iteration = 1; iteration <= maxIterations; iteration++) {
-        if (deadline?.aborted) return timedOut(iteration - 1);
-        if (signal?.aborted) return fail(iteration - 1, "Aborted");
+        const before = stopped(iteration - 1);
+        if (before) return before;
         emit({ type: "llm_request", iteration });
 
         let message: ChatMessage;
@@ -57,7 +59,8 @@ export function createAgent(options: AgentOptions): Agent {
           message = response.message;
           emit({ type: "llm_response", iteration, ms: Date.now() - started, usage: response.usage, model: response.model, toolCalls: message.toolCalls?.length ?? 0 });
         } catch (e) {
-          if (deadline?.aborted) return timedOut(iteration);
+          const halted = stopped(iteration);
+          if (halted) return halted;
           return fail(iteration, `LLM provider "${provider.name}" failed: ${errorText(e)}`);
         }
         transcript.push(message);
@@ -68,6 +71,8 @@ export function createAgent(options: AgentOptions): Agent {
         }
 
         for (const call of calls) {
+          const halted = stopped(iteration);
+          if (halted) return halted;
           emit({ type: "tool_call", call });
           const tool = tools.get(call.name);
           const parsed = tool?.schema.safeParse(call.arguments);
@@ -96,7 +101,8 @@ export function createAgent(options: AgentOptions): Agent {
             if (key) cache.set(key, result);
             emit({ type: "tool_result", callId: call.id, result, cached: false, ...reply(call, stableStringify(result)) });
           } catch (e) {
-            if (deadline?.aborted) return timedOut(iteration);
+            const halted = stopped(iteration);
+            if (halted) return halted;
             const error = `Tool "${call.name}" failed: ${errorText(e)}`;
             emit({ type: "tool_error", call, error });
             reply(call, error);

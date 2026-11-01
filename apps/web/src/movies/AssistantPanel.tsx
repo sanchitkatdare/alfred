@@ -1,4 +1,5 @@
 import type { AgentEvent } from "@alfred/agent-harness";
+import { short } from "./devlog";
 
 export interface Step {
   kind: "think" | "tool" | "result" | "fix" | "error";
@@ -12,11 +13,6 @@ export interface Turn {
   answer?: string;
   error?: string;
 }
-
-export const short = (value: unknown, max = 110) => {
-  const text = typeof value === "string" ? value : JSON.stringify(value);
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
-};
 
 /** One line in the visible trace for each harness event. */
 export function describeEvent(event: AgentEvent): Step | null {

@@ -53,20 +53,27 @@ export interface TitleIndex {
   byKey: Map<string, Movie[]>;
 }
 
-/** Titles and original titles, with and without a leading "the". */
+/**
+ * Titles and original titles, with and without a leading "the", most voted first. The part before
+ * a colon also matches, unless a movie has exactly that title ("Dune" stays Dune, not "Dune: Part Two").
+ */
 export function buildTitleIndex(catalog: Movie[]): TitleIndex {
-  const byKey = new Map<string, Movie[]>();
-  const add = (title: string, m: Movie) => {
-    for (const k of new Set([toKey(title), toKey(title.replace(/^the\s+/i, ""))])) {
-      const list = byKey.get(k) ?? [];
-      if (!list.includes(m)) byKey.set(k, [...list, m]);
+  const collect = (titlesOf: (m: Movie) => string[]) => {
+    const found = new Map<string, Set<Movie>>();
+    for (const m of catalog) {
+      for (const title of titlesOf(m)) {
+        for (const k of [toKey(title), toKey(title.replace(/^the\s+/i, ""))]) {
+          if (!found.has(k)) found.set(k, new Set());
+          found.get(k)!.add(m);
+        }
+      }
     }
+    return found;
   };
-  for (const m of catalog) {
-    add(m.title, m);
-    if (m.originalTitle) add(m.originalTitle, m);
-  }
-  for (const list of byKey.values()) list.sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0));
+  const exact = collect((m) => (m.originalTitle ? [m.title, m.originalTitle] : [m.title]));
+  const bases = collect((m) => (m.title.includes(":") ? [m.title.split(":")[0]!] : []));
+  const byKey = new Map<string, Movie[]>();
+  for (const [k, movies] of [...bases, ...exact]) byKey.set(k, [...movies].sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0)));
   return { byKey };
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SAMPLE_CATALOG } from "./sample-catalog.fixture";
-import { byRating, createMovieTools, movieToolSpecs, type MovieToolContext } from "./tools";
+import { byRating, createMovieTools, movieToolSpecs, type MovieToolContext, filterCatalog } from "./tools";
 
 function setup(watched: number[] = []) {
   const searches: { text: string; ids?: number[] }[] = [];
@@ -24,6 +24,16 @@ describe("search_movies", () => {
     const { run } = setup();
     const r = await run("search_movies", { genres: ["comedy"], excludeGenres: ["animation"], maxRuntime: 120 });
     expect(r.movies.map((m: { title: string }) => m.title)).toEqual(["Paddington 2", "Superbad"]);
+  });
+
+  it("matches a surname only at a word start", () => {
+    const movie = { ...SAMPLE_CATALOG[0]!, cast: ["Robert Redford", "Robert De Niro"], directors: [] };
+    const matches = (name: string) => filterCatalog([movie], { people: [name], includeWatched: true }, new Set()).length === 1;
+    expect(matches("Ford")).toBe(false);
+    expect(matches("Redford")).toBe(true);
+    expect(matches("De Niro")).toBe(true);
+    expect(matches("niro")).toBe(true);
+    expect(matches("Robert")).toBe(false);
   });
 
   it("matches people by full name or surname", async () => {

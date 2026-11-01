@@ -11,6 +11,42 @@ const filtered = (q: string, watched = new Set<number>()) => filterCatalog(SAMPL
 const titlesOf = (q: string) => filtered(q).map((m) => m.title);
 const routeOf = (q: string) => decideRoute(parse(q, config), MOVIE_ROUTER_OPTIONS).route;
 
+describe("negated filters are not applied", () => {
+  it.each(["not over 2 hours", "no 90s movies", "not highly rated", "no short movies", "not like inception", "not recent"])("%s", (q) => {
+    const parsed = parse(q, config);
+    expect(parsed.chips).toEqual([]);
+    expect(parsed.leftover.length).toBeGreaterThan(0);
+    expect(parsed.trace.join(" ")).toContain("cannot be excluded");
+  });
+
+  it("a filter after a completed exclusion still applies", () => {
+    expect(chipsOf("not sci-fi, under 2 hours")).toEqual(["!genre:Sci-fi", "runtime:≤ 120 min"]);
+  });
+});
+
+describe("like a title with several movies", () => {
+  const heat = SAMPLE_CATALOG.find((m) => m.title === "Heat")!;
+  const remakes = [{ ...heat, id: 9001, year: 2020, votes: 10 }, { ...heat, id: 9002, year: 1995, votes: 5000 }, { ...heat, id: 9003, year: 1986, votes: 20 }];
+  const similarOf = (q: string, movies = remakes) => parse(q, buildMovieParserConfig(movies)).chips.find((c) => c.kind === "similar")?.id;
+
+  it("picks the most voted movie, in any catalog order", () => {
+    expect(similarOf("like heat")).toBe("9002");
+    expect(similarOf("like heat", [...remakes].reverse())).toBe("9002");
+  });
+
+  it("prefers an exact title to the part before a colon", () => {
+    const dune = [{ ...heat, id: 1, title: "Dune: Part Two", votes: 9000 }, { ...heat, id: 2, title: "Dune", votes: 10 }];
+    expect(similarOf("like dune", dune)).toBe("2");
+    expect(similarOf("like dune", dune.slice(0, 1))).toBe("1");
+  });
+
+  it("reads a pronoun as a title only with more words", () => {
+    const it2 = [{ ...heat, id: 3, title: "It Follows", votes: 10 }, { ...heat, id: 4, title: "It", votes: 10 }];
+    expect(similarOf("like it follows", it2)).toBe("3");
+    expect(similarOf("like it", it2)).toBeUndefined();
+  });
+});
+
 describe("plot words stay plot text", () => {
   it.each([
     ["a boy who lives under a bridge", []],
@@ -22,6 +58,7 @@ describe("plot words stay plot text", () => {
     ["short man with big dreams", []],
     ["something like it", []],
     ["like her", []],
+    ["an old, lonely man", []],
   ])("%s", (q, expected) => {
     expect(chipsOf(q)).toEqual(expected);
   });
@@ -35,6 +72,7 @@ describe("plot words stay plot text", () => {
     ["new horror", ["year:2015 or later", "genre:Horror"]],
     ["something recent", ["year:2015 or later"]],
     ["classic", ["year:Before 2000"]],
+    ["something short?", ["runtime:≤ 100 min"]],
   ])("still filters: %s", (q, expected) => {
     expect(chipsOf(q)).toEqual(expected);
   });

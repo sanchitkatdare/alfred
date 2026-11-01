@@ -12,6 +12,7 @@ import {
 } from "@alfred/agent-harness";
 import type { Movie } from "./catalog";
 import { PRONOUNS } from "./followups";
+import { buildTitleIndex, type TitleIndex } from "./lookups";
 
 const GENRES: { id: string; label: string; aliases: string[] }[] = [
   { id: "sci-fi", label: "Sci-fi", aliases: ["scifi", "science fiction", "sf"] },
@@ -88,10 +89,15 @@ function readNumber(ctx: RuleContext, i: number): { n: number; unit: string | nu
 }
 
 /**
- * "old", "new", "short" filter only when they describe the movie: "old movies", "short comedy", or a final word.
+ * "old", "new", "short" filter only when they describe the movie: "old movies", "short comedy", or the last word.
  * In "an old man" or "new york" they stay plot text.
  */
-const DESCRIBES_MOVIE = new Set(["movie", "movies", "film", "films", "flick", "flicks", "one", "ones", "", ...GENRES.flatMap((g) => [g.id, g.label, ...g.aliases].map((w) => toKey(w.split(" ")[0]!)))]);
+const DESCRIBES_MOVIE = new Set(["movie", "movies", "film", "films", "flick", "flicks", "one", "ones", ...GENRES.flatMap((g) => [g.id, g.label, ...g.aliases].map((w) => toKey(w.split(" ")[0]!)))]);
+
+const describesMovie = (ctx: RuleContext, i: number) => {
+  const next = ctx.tokens[i + 1];
+  return next === undefined || next === "!" || next === "?" || DESCRIBES_MOVIE.has(ctx.keyAt(i + 1));
+};
 
 const quote = (ctx: RuleContext, from: number, to: number) => `"${ctx.tokens.slice(from, to).join(" ")}"`;
 const ratingChip = (n: number) => ({ kind: "rating", id: String(n), label: `Rating ≥ ${n}`, data: { min: n } });
@@ -134,7 +140,7 @@ const comparisonRule: Rule = {
   name: "comparison",
   match(ctx, i) {
     const k = ctx.keyAt(i);
-    if ((k === "short" || k === "quick") && DESCRIBES_MOVIE.has(ctx.keyAt(i + 1))) {
+    if ((k === "short" || k === "quick") && describesMovie(ctx, i)) {
       return { consumed: 1, chips: [{ kind: "runtime", id: "max100", label: "≤ 100 min", data: { max: 100 } }], trace: `${quote(ctx, i, i + 1)} → runtime ≤ 100 min` };
     }
     const atLeast = ctx.matches(i, ["at", "least"]);
@@ -197,7 +203,7 @@ const yearRule: Rule = {
     if (["after", "since", "from"].includes(k) && /^(19|20)\d{2}$/.test(next)) return one(`From ${next}`, parseInt(next, 10), null, 2);
     if (["before", "until"].includes(k) && /^(19|20)\d{2}$/.test(next)) return one(`Before ${next}`, null, parseInt(next, 10) - 1, 2);
     if (/^(19|20)\d{2}$/.test(k)) return one(k, parseInt(k, 10), parseInt(k, 10));
-    if (!DESCRIBES_MOVIE.has(next)) return null;
+    if (!describesMovie(ctx, i)) return null;
     if (k === "recent" || k === "new") return one("2015 or later", 2015, null);
     if (["classic", "old", "older"].includes(k)) return one("Before 2000", null, 1999);
     return null;
@@ -205,18 +211,17 @@ const yearRule: Rule = {
 };
 
 /** "like Inception", "similar to The Matrix". Titles match only after these words, so "Up" or "Her" stay ordinary words. */
-function similarRule(titles: Map<string, Movie>): Rule {
+function similarRule(titles: TitleIndex): Rule {
   return {
     name: "similar",
     match(ctx, i) {
       const k = ctx.keyAt(i);
       const start = k === "like" ? i + 1 : k === "similar" && ctx.keyAt(i + 1) === "to" ? i + 2 : -1;
       if (start < 0) return null;
-      // "like it", "like her": a pronoun. "like Her" keeps the capital and stays a title.
-      if (PRONOUNS.has(ctx.tokens[start] ?? "")) return null;
       for (let n = Math.min(7, ctx.tokens.length - start); n >= 1; n--) {
         const key = ctx.tokens.slice(start, start + n).map(toKey).join("");
-        const movie = titles.get(key);
+        // "like it", "like her": a pronoun, not the movie. The parser has no capitals, so these titles need more words ("like it follows").
+        const movie = n === 1 && PRONOUNS.has(key) ? undefined : titles.byKey.get(key)?.[0];
         if (movie) {
           return {
             consumed: start + n - i,
@@ -236,7 +241,6 @@ function titleWords(catalog: Movie[]): string[] {
 
 export function buildMovieParserConfig(catalog: Movie[]): ParserConfig {
   const counts = new Map<string, PersonSpec>();
-  const titles = new Map<string, Movie>();
   for (const movie of catalog) {
     for (const [kind, names] of [["actor", movie.cast], ["director", movie.directors]] as const) {
       for (const name of names) {
@@ -245,10 +249,6 @@ export function buildMovieParserConfig(catalog: Movie[]): ParserConfig {
         counts.set(name, p);
       }
     }
-    titles.set(toKey(movie.title), movie);
-    if (/^the /i.test(movie.title)) titles.set(toKey(movie.title.slice(4)), movie);
-    const base = movie.title.split(":")[0]!;
-    if (base !== movie.title && !titles.has(toKey(base))) titles.set(toKey(base), movie);
   }
 
   return {
@@ -259,7 +259,7 @@ export function buildMovieParserConfig(catalog: Movie[]): ParserConfig {
       commonWords: [...COMMON_WORDS, ...titleWords(catalog)],
       minSurnameCount: 2,
     }),
-    rules: [ratingRule, comparisonRule, yearRule, similarRule(titles), aboutQuestionRule],
+    rules: [ratingRule, comparisonRule, yearRule, similarRule(buildTitleIndex(catalog)), aboutQuestionRule],
     phrases: PHRASES,
     stopWords: STOP_WORDS,
   };

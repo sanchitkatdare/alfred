@@ -47,15 +47,21 @@ export type SearchArgs = z.infer<typeof searchSchema>;
 
 /** Normalized cast and director names per movie, computed once: the filter runs on every keystroke over 10k movies. */
 const peopleKeyCache = new WeakMap<Movie, string[]>();
+/** The full name and each ending that starts at a word: "Robert De Niro" → robertdeniro, deniro, niro. "Ford" does not match "Redford". */
+const nameKeys = (name: string) => {
+  const words = name.split(/\s+/);
+  return words.map((_, i) => toKey(words.slice(i).join("")));
+};
+
 const peopleKeys = (movie: Movie) => {
   let keys = peopleKeyCache.get(movie);
-  if (!keys) peopleKeyCache.set(movie, (keys = [...movie.cast, ...movie.directors].map(toKey)));
+  if (!keys) peopleKeyCache.set(movie, (keys = [...movie.cast, ...movie.directors].flatMap(nameKeys)));
   return keys;
 };
 
 const personMatches = (movie: Movie, name: string) => {
   const k = toKey(name);
-  return peopleKeys(movie).some((p) => p === k || p.endsWith(k));
+  return peopleKeys(movie).includes(k);
 };
 
 /** The one movie filter, used by the assistant's search_movies and by the search page. */

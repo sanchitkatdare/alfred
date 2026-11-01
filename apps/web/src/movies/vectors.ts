@@ -73,3 +73,10 @@ export function scoreParts(index: VectorIndex, id: number, score: number): { sim
   const bonus = r === undefined ? 0 : index.boosts[r]!;
   return { similarity: score - bonus, bonus };
 }
+
+/** Adds two vectors after scaling each to length 1, so a movie and a phrase count equally. */
+export function blend(a: ArrayLike<number>, b: ArrayLike<number>): number[] {
+  const norm = (v: ArrayLike<number>) => Math.sqrt(Array.from(v).reduce((s, x) => s + x * x, 0)) || 1;
+  const na = norm(a), nb = norm(b);
+  return Array.from(a, (x, i) => x / na + b[i]! / nb);
+}

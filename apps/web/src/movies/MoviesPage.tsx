@@ -1,20 +1,23 @@
-import { decideRoute, parse, type AgentEvent, type ChatMessage, type Chip, type ParserConfig, type Route } from "@alfred/agent-harness";
+import { decideRoute, parse, type Chip, type ParserConfig } from "@alfred/agent-harness";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import tmdbLogo from "../../../../assets/tmdb.svg";
-import { createEmbedClient, friendlyError } from "./api";
+import { createEmbedClient } from "./api";
 import { DevPanel } from "./DevPanel";
-import { useDevLog, type DevLog } from "./devlog";
-import { AssistantPanel, describeEvent, short, type Turn } from "./AssistantPanel";
-import { createMovieAssistant, isTimeout, QUESTION_LIMIT_MS, timeoutMessage } from "./assistant";
+import { short, useDevLog, type DevLog } from "./devlog";
+import { AssistantPanel } from "./AssistantPanel";
+import { createMovieAssistant } from "./assistant";
 import type { CatalogMeta, Movie } from "./catalog";
 import { buildMovieParserConfig, MOVIE_ROUTER_OPTIONS } from "./config";
 import { loadCatalog, loadStories, loadSynopses, loadVectors } from "./data";
-import { isFollowUp } from "./followups";
 import { aboutAnswer, answerFromCatalog, buildTitleIndex, describeLookup, detectLookup, RUNS_ON_ENTER, type Lookup } from "./lookups";
 import { chipsToSearchHints } from "./hints";
 import { byRating, filterCatalog } from "./tools";
 import { useWatched } from "./useWatched";
-import { rankByVector, scoreParts, vectorOf, type VectorIndex } from "./vectors";
+import { ResultsPanel } from "./ResultsPanel";
+import { decideAppRoute, type AppRoute } from "./routing";
+import { useAssistantConversation } from "./useAssistantConversation";
+import { useSemanticSearch } from "./useSemanticSearch";
+import { rankByVector, type VectorIndex } from "./vectors";
 
 const MAX_QUERY_CHARS = 300;
 
@@ -33,9 +36,6 @@ const KIND_LABEL: Record<string, string> = {
   rating: "rating", similar: "like", task: "task", user: "my data",
 };
 
-/** "lookup" is a Level 2 workflow: answered by code, never by the LLM. */
-type AppRoute = Route | "lookup";
-
 const ROUTES: Record<AppRoute, { name: string; cost: string; detail: string }> = {
   lookup: { name: "Lookup", cost: "0 AI calls", detail: "Answered by code from the catalog, the story files or your watched list. No LLM." },
   local: { name: "Local filter", cost: "0 AI calls · no network", detail: "The list below updates as you type; Search changes nothing." },
@@ -43,50 +43,6 @@ const ROUTES: Record<AppRoute, { name: string; cost: string; detail: string }> =
   assistant: { name: "Assistant", cost: "2-5 LLM calls · ≈ 5-10 s", detail: "Press Enter: the assistant searches, reads and decides in up to 5 steps. You see each step." },
   empty: { name: "Waiting for input", cost: "", detail: "Type a request or pick an example." },
 };
-
-const formatRuntime = (min: number) => `${Math.floor(min / 60)}h${min % 60 ? ` ${min % 60}m` : ""}`;
-
-/** Adds two vectors after scaling each to length 1, so a movie and a phrase count equally. */
-function blend(a: ArrayLike<number>, b: ArrayLike<number>): number[] {
-  const norm = (v: ArrayLike<number>) => Math.sqrt(Array.from(v).reduce((s, x) => s + x * x, 0)) || 1;
-  const na = norm(a), nb = norm(b);
-  return Array.from(a, (x, i) => x / na + b[i]! / nb);
-}
-
-/** Dev-mode line for each harness event; null for events the dev log does not show. */
-function devItemFor(e: AgentEvent) {
-  switch (e.type) {
-    case "llm_response":
-      return {
-        stage: "assistant" as const,
-        label: `Model call ${e.iteration}`,
-        detail: `${e.model ? `${e.model.split("/").pop()} · ` : ""}${e.toolCalls} tool call${e.toolCalls === 1 ? "" : "s"}${e.usage ? ` · ${e.usage.inputTokens} in / ${e.usage.outputTokens} out tokens` : ""}`,
-        ms: e.ms,
-        neurons: e.usage?.neurons,
-        serverCall: true,
-      };
-    case "tool_call":
-      return { stage: "assistant" as const, label: `Tool: ${e.call.name}`, detail: `model asked for ${short(e.call.arguments, 160)}` };
-    case "tool_result":
-      return { stage: "assistant" as const, label: "Tool result", detail: `${e.chars} characters sent to the model${e.truncated ? ", truncated" : ""}${e.cached ? ", repeat call (not run)" : ""}` };
-    case "validation_error":
-      return { stage: "assistant" as const, label: "Invalid tool call, sent back", detail: short(e.error.split("\n")[0], 160) };
-    case "tool_error":
-      return { stage: "assistant" as const, label: "Tool error", detail: e.error };
-    case "limit_reached":
-      return { stage: "assistant" as const, label: "Step limit reached", detail: `${e.iterations} model calls` };
-    case "timed_out":
-      return { stage: "assistant" as const, label: "Time limit reached", detail: `${e.ms / 1000} s` };
-    default:
-      return null;
-  }
-}
-
-interface SemanticResult {
-  query: string;
-  movies: Movie[];
-  ms: number;
-}
 
 interface MovieSearchProps {
   meta: CatalogMeta;
@@ -154,8 +110,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
     [catalog, getWatched, search, dev.add],
   );
 
-  const [turns, setTurns] = useState<Turn[]>([]);
-  const running = turns.at(-1)?.status === "running";
+  const { turns, running, runAssistant, stop, resetConversation } = useAssistantConversation(ask, dev, currentEntry);
   const { parsed, parseMs } = useMemo(() => {
     const started = performance.now();
     const result = parse(query, config);
@@ -167,14 +122,9 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
   const [ignoreLookup, setIgnoreLookup] = useState(false);
   const detected = useMemo(() => detectLookup(query, titleIndex), [query, titleIndex]);
   const lookup = ignoreLookup ? null : detected;
-  // Rule A: during a conversation, words that refer back ("those", "shorter") make it a follow-up for the assistant.
   const [ignoreFollowUp, setIgnoreFollowUp] = useState(false);
-  const followUp = !lookup && !ignoreFollowUp && ruleDecision.route !== "assistant" && turns.some((t) => t.status === "done") && isFollowUp(query);
-  const decision: { route: AppRoute; reason: string } = lookup
-    ? { route: "lookup", reason: `Lookup: ${describeLookup(lookup)}` }
-    : followUp
-      ? { route: "assistant", reason: "Follow-up to the conversation" }
-      : ruleDecision;
+  const decision = decideAppRoute({ query, lookup, rules: ruleDecision, inConversation: turns.some((t) => t.status === "done"), ignoreFollowUp });
+  const followUp = decision.followUp;
   const deferredChips = useDeferredValue(chips);
   const live = useMemo(() => {
     // Same filter as the assistant's search_movies: chips become hard filters.
@@ -186,101 +136,11 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
   const fresh = new Set(chips.filter((c) => !seenSigs.current.has(c.sig)).map((c) => c.sig));
   seenSigs.current = new Set(chips.map((c) => c.sig));
 
-  // Search by meaning
-  const [semantic, setSemantic] = useState<SemanticResult | null>(null);
-  const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
+  const { semantic, searching, searchError, setSearchError, runSearch } = useSemanticSearch({ catalog, byId, watched, dev, currentEntry, embed, getVectors });
   const logRules = (id: number) => {
     dev.add(id, { stage: "rules", label: `Route: ${decision.route}`, detail: `${decision.reason} · parsed in ${parseMs.toFixed(2)} ms` });
     const hints = chipsToSearchHints(chips);
     if (Object.keys(hints).length) dev.add(id, { stage: "rules", label: "Hard filters from chips", detail: short(hints, 160) });
-  };
-  const runSearch = async () => {
-    setSearching(true);
-    setSearchError(null);
-    const started = performance.now();
-    const entry = dev.start("search", query);
-    currentEntry.current = entry;
-    logRules(entry);
-    try {
-      const similar = chips.find((c) => c.kind === "similar");
-      const similarId = similar ? Number(similar.id) : null;
-      const text = parsed.leftover.join(" ");
-      const index = await getVectors();
-      const movieVector = similarId !== null ? vectorOf(index, similarId) : null;
-      const textVector = text ? await embed(text) : null;
-      const queryVector = textVector && movieVector ? blend(textVector, movieVector) : (textVector ?? movieVector);
-      if (!queryVector) return;
-      if (movieVector) dev.add(entry, { stage: "search", label: "Movie vector", detail: `stored vector of ${byId.get(similarId!)?.title}, no server call` });
-      const ids = filterCatalog(catalog, chipsToSearchHints(chips), watched).map((m) => m.id).filter((id) => id !== similarId);
-      dev.add(entry, { stage: "search", label: "Filters", detail: `${ids.length.toLocaleString()} of ${catalog.length.toLocaleString()} movies left` });
-      const rankStarted = performance.now();
-      const ranked = rankByVector(index, queryVector, ids, 10);
-      dev.add(entry, { stage: "search", label: "Ranking in the browser", detail: `${ids.length.toLocaleString()} vectors`, ms: Math.round(performance.now() - rankStarted) });
-      dev.add(entry, {
-        stage: "search",
-        label: "Top results (meaning + popularity)",
-        detail: ranked.slice(0, 5).map((r) => {
-          const p = scoreParts(index, r.id, r.score);
-          return `${byId.get(r.id)?.title} ${p.similarity.toFixed(2)}+${p.bonus.toFixed(2)}`;
-        }).join(" · "),
-      });
-      setSemantic({ query, movies: ranked.map((r) => byId.get(r.id)!), ms: Math.round(performance.now() - started) });
-    } catch (e) {
-      setSearchError(friendlyError(e));
-      dev.add(entry, { stage: "search", label: "Error", detail: friendlyError(e) });
-    } finally {
-      setSearching(false);
-      dev.finish(entry);
-      currentEntry.current = null;
-    }
-  };
-
-  // Assistant
-  const history = useRef<ChatMessage[]>([]);
-  const abort = useRef<AbortController | null>(null);
-  const runAssistant = async (tier: "default" | "oracle" = "default") => {
-    const question = query.trim();
-    if (!question) return;
-    const turnIndex = turns.length;
-    const update = (change: (t: Turn) => Turn) => setTurns((all) => all.map((t, i) => (i === turnIndex ? change(t) : t)));
-    const waitNote = tier === "oracle" ? [{ kind: "think" as const, text: `Oracle can take up to ${QUESTION_LIMIT_MS.oracle / 1000} s. Stop ends it early.` }] : [];
-    setTurns((all) => [...all, { question, steps: waitNote, status: "running" }]);
-    let found: { title: string; year: number }[] = [];
-    abort.current = new AbortController();
-    const entry = dev.start("assistant", question);
-    currentEntry.current = entry;
-    logRules(entry);
-    try {
-      const result = await ask(question, {
-        history: history.current,
-        hints: chipsToSearchHints(chips),
-        tier,
-        signal: abort.current.signal,
-        onEvent: (e) => {
-          const movies = e.type === "tool_result" ? (e.result as { movies?: { title: string; year: number }[] }).movies : undefined;
-          if (movies?.length) found = movies;
-          const step = describeEvent(e);
-          if (step) update((t) => ({ ...t, steps: [...t.steps, step] }));
-          const item = devItemFor(e);
-          if (item) dev.add(entry, item);
-        },
-      });
-      if (result.status === "done") {
-        history.current = result.transcript.filter((m) => m.role !== "system");
-        update((t) => ({ ...t, status: "done", answer: result.message?.content || "(no answer)" }));
-      } else if (isTimeout(result)) {
-        update((t) => ({ ...t, status: "failed", error: timeoutMessage(found) }));
-      } else {
-        const error = result.status === "limit_reached" ? "The assistant ran out of steps. Try a more specific question." : friendlyError(result.error ?? "The assistant failed.");
-        update((t) => ({ ...t, status: "failed", error: error === "Aborted" ? "Stopped." : error }));
-      }
-    } catch (e) {
-      update((t) => ({ ...t, status: "failed", error: friendlyError(e) }));
-    } finally {
-      dev.finish(entry);
-      currentEntry.current = null;
-    }
   };
   // Lookups (Level 2 workflows): answered by code. Read-only ones show while typing; the rest run on Enter.
   const [lookupResult, setLookupResult] = useState<{ query: string; text: string } | null>(null);
@@ -299,11 +159,6 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
     dev.finish(entry);
   };
   const lookupText = liveLookupText ? { text: liveLookupText } : lookupResult?.query === query ? lookupResult : null;
-
-  const resetConversation = () => {
-    history.current = [];
-    setTurns([]);
-  };
 
   const setText = (text: string) => {
     setQuery(text.slice(0, MAX_QUERY_CHARS));
@@ -324,17 +179,18 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
     inputRef.current?.focus();
   };
   const busy = searching || running;
+  const askAssistant = (tier?: "oracle") => runAssistant(query, chipsToSearchHints(chips), logRules, tier);
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (busy) return;
     if (decision.route === "lookup" && lookup) void runLookup(lookup);
-    else if (decision.route === "assistant") void runAssistant();
-    else if (decision.route === "semantic") void runSearch();
+    else if (decision.route === "assistant") void askAssistant();
+    else if (decision.route === "semantic") void runSearch({ query, chips, text: parsed.leftover.join(" ") }, logRules);
   };
 
   const route = ROUTES[decision.route];
-  const showSemantic = semantic && semantic.query === query;
-  const shown = showSemantic ? semantic.movies.filter((m) => !watched.has(m.id)) : live.movies.slice(0, 10);
+  const showSemantic = semantic?.query === query;
+  const shown = showSemantic ? semantic!.movies.filter((m) => !watched.has(m.id)) : live.movies.slice(0, 10);
 
   return (
     <main className={`page${devMode ? " with-dev" : ""}`}>
@@ -414,50 +270,25 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
         )}
         {lookup && !lookupText && <p className="note">Press Enter to show the story. No AI involved.</p>}
 
-        <AssistantPanel turns={turns} running={running} onStop={() => abort.current?.abort()} onReset={resetConversation} />
+        <AssistantPanel turns={turns} running={running} onStop={stop} onReset={resetConversation} />
 
         <div className="grid">
-          <div className="panel">
-            <div className="panel-head">
-              <h2>{showSemantic ? "Best matches by meaning" : "Results"}</h2>
-              <div className="panel-head-side">
-                <span className="note">{showSemantic ? `ranked in ${semantic.ms} ms` : `${live.movies.length} of ${catalog.length} match`}</span>
-                {showSemantic && <button type="button" className="linkish" disabled={busy} onClick={() => void runAssistant("oracle")}>No, Alfred, not what I wanted. Ask Oracle instead</button>}
-              </div>
-            </div>
-            {searchError && (
-              <p className="answer failed dismissible" role="alert">
-                <span>{searchError}</span>
-                <button type="button" className="x" aria-label="Dismiss error" onClick={() => setSearchError(null)}>×</button>
-              </p>
-            )}
-            <ul className="results">
-              {shown.map((movie) => (
-                <li key={movie.id}>
-                  <span className="t">{movie.title}</span>
-                  <button type="button" className="w" onClick={() => markWatched(movie.id)}>Mark watched</button>
-                  <span className="m">{movie.year} · {formatRuntime(movie.runtime)} · ★ {movie.rating.toFixed(1)} · {movie.genres.join(", ")}</span>
-                  {synopses[movie.id] && <span className="syn">{synopses[movie.id]}</span>}
-                </li>
-              ))}
-              {!shown.length && <li><span className="empty">No movie matches these filters.</span></li>}
-            </ul>
-            {live.hiddenWatched > 0 && <p className="note">{live.hiddenWatched} hidden because you marked them watched.</p>}
-            {watched.size > 0 && (
-              <details className="watched">
-                <summary>Watched ({watched.size})</summary>
-                <ul>
-                  {[...watched].reverse().map((id) => byId.get(id)).filter((m): m is Movie => !!m).map((m) => (
-                    <li key={m.id}>
-                      <span>{m.title} ({m.year})</span>
-                      <button type="button" className="w" onClick={() => unmark(m.id)}>Remove</button>
-                    </li>
-                  ))}
-                </ul>
-                <button type="button" className="linkish" onClick={clear}>Clear all</button>
-              </details>
-            )}
-          </div>
+          <ResultsPanel
+            semantic={showSemantic ? semantic : null}
+            matchCount={live.movies.length}
+            catalogSize={catalog.length}
+            movies={shown}
+            synopses={synopses}
+            busy={busy}
+            searchError={searchError}
+            hiddenWatched={live.hiddenWatched}
+            watchedMovies={[...watched].reverse().map((id) => byId.get(id)).filter((m): m is Movie => !!m)}
+            onOracle={() => void askAssistant("oracle")}
+            onDismissError={() => setSearchError(null)}
+            onMark={markWatched}
+            onUnmark={unmark}
+            onClear={clear}
+          />
 
           <div className="panel">
             <h2>Parser trace</h2>
