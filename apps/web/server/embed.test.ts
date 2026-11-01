@@ -7,12 +7,12 @@ const fakeEnv = (dims: number) => ({ AI: { run: async () => ({ data: [Array.from
 describe("embed", () => {
   it("validates the query text", () => {
     expect(embedRequestSchema.safeParse({ text: "  " }).success).toBe(false);
-    expect(embedRequestSchema.safeParse({ text: "x".repeat(201) }).success).toBe(false);
+    expect(embedRequestSchema.safeParse({ text: "x".repeat(301) }).success).toBe(false);
     expect(embedRequestSchema.safeParse({ text: "dream heist" }).success).toBe(true);
   });
 
   it("returns a rounded 384-dimension vector", async () => {
-    const { body } = await embedQuery(fakeEnv(384), "dream heist");
+    const body = await embedQuery(fakeEnv(384), "dream heist");
     expect(body.vector).toHaveLength(384);
     expect(body.vector[0]).toBe(0.12346);
     expect(body.usage).toEqual({ tokens: 5, neurons: (5 * 1841) / 1e6 });

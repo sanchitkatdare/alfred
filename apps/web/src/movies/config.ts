@@ -11,6 +11,7 @@ import {
   type RouterOptions,
 } from "@alfred/agent-harness";
 import type { Movie } from "./catalog";
+import { PRONOUNS } from "./followups";
 
 const GENRES: { id: string; label: string; aliases: string[] }[] = [
   { id: "sci-fi", label: "Sci-fi", aliases: ["scifi", "science fiction", "sf"] },
@@ -70,6 +71,7 @@ const aboutQuestionRule: Rule = {
   },
 };
 
+/** Spelled numbers count only before a unit: "under an hour", but not "under a bridge". */
 const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, a: 1, an: 1 };
 const HOURS = new Set(["h", "hr", "hrs", "hour", "hours"]);
 const MINUTES = new Set(["m", "min", "mins", "minute", "minutes"]);
@@ -81,8 +83,15 @@ function readNumber(ctx: RuleContext, i: number): { n: number; unit: string | nu
   const match = t.match(/^(\d+(?:\.\d+)?)(h|hr|hrs|hour|hours|m|min|mins|minute|minutes)?$/);
   if (match) return { n: parseFloat(match[1]!), unit: match[2] ?? null };
   const word = NUMBER_WORDS[ctx.keyAt(i)];
-  return word ? { n: word, unit: null } : null;
+  const next = ctx.keyAt(i + 1);
+  return word && (HOURS.has(next) || MINUTES.has(next) || STARS.has(next)) ? { n: word, unit: null } : null;
 }
+
+/**
+ * "old", "new", "short" filter only when they describe the movie: "old movies", "short comedy", or a final word.
+ * In "an old man" or "new york" they stay plot text.
+ */
+const DESCRIBES_MOVIE = new Set(["movie", "movies", "film", "films", "flick", "flicks", "one", "ones", "", ...GENRES.flatMap((g) => [g.id, g.label, ...g.aliases].map((w) => toKey(w.split(" ")[0]!)))]);
 
 const quote = (ctx: RuleContext, from: number, to: number) => `"${ctx.tokens.slice(from, to).join(" ")}"`;
 const ratingChip = (n: number) => ({ kind: "rating", id: String(n), label: `Rating ≥ ${n}`, data: { min: n } });
@@ -125,7 +134,7 @@ const comparisonRule: Rule = {
   name: "comparison",
   match(ctx, i) {
     const k = ctx.keyAt(i);
-    if (k === "short" || k === "quick") {
+    if ((k === "short" || k === "quick") && DESCRIBES_MOVIE.has(ctx.keyAt(i + 1))) {
       return { consumed: 1, chips: [{ kind: "runtime", id: "max100", label: "≤ 100 min", data: { max: 100 } }], trace: `${quote(ctx, i, i + 1)} → runtime ≤ 100 min` };
     }
     const atLeast = ctx.matches(i, ["at", "least"]);
@@ -188,7 +197,8 @@ const yearRule: Rule = {
     if (["after", "since", "from"].includes(k) && /^(19|20)\d{2}$/.test(next)) return one(`From ${next}`, parseInt(next, 10), null, 2);
     if (["before", "until"].includes(k) && /^(19|20)\d{2}$/.test(next)) return one(`Before ${next}`, null, parseInt(next, 10) - 1, 2);
     if (/^(19|20)\d{2}$/.test(k)) return one(k, parseInt(k, 10), parseInt(k, 10));
-    if (k === "recent" || (k === "new" && next !== "to")) return one("2015 or later", 2015, null);
+    if (!DESCRIBES_MOVIE.has(next)) return null;
+    if (k === "recent" || k === "new") return one("2015 or later", 2015, null);
     if (["classic", "old", "older"].includes(k)) return one("Before 2000", null, 1999);
     return null;
   },
@@ -202,6 +212,8 @@ function similarRule(titles: Map<string, Movie>): Rule {
       const k = ctx.keyAt(i);
       const start = k === "like" ? i + 1 : k === "similar" && ctx.keyAt(i + 1) === "to" ? i + 2 : -1;
       if (start < 0) return null;
+      // "like it", "like her": a pronoun. "like Her" keeps the capital and stays a title.
+      if (PRONOUNS.has(ctx.tokens[start] ?? "")) return null;
       for (let n = Math.min(7, ctx.tokens.length - start); n >= 1; n--) {
         const key = ctx.tokens.slice(start, start + n).map(toKey).join("");
         const movie = titles.get(key);

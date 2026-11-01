@@ -1,5 +1,6 @@
-import { toKey } from "@alfred/agent-harness";
+import { normalize, toKey } from "@alfred/agent-harness";
 import type { Movie } from "./catalog";
+import { PRONOUNS } from "./followups";
 
 /**
  * Level 2 workflows: questions and actions answered by code from data we already hold.
@@ -40,10 +41,7 @@ const WATCHED_LIST = /^(?:what|which)(?: movies| films)? have i (?:watched|seen)
 
 /** Lowercase, no accents, no quotes or trailing punctuation, single spaces. */
 function clean(text: string): string {
-  return text
-    .normalize("NFD").replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[‘’]/g, "'")
+  return normalize(text)
     .replace(/["“”]/g, "")
     .replace(/'s\b/g, "s")
     .replace(/[?.!]+\s*$/, "")
@@ -88,7 +86,7 @@ export function detectLookup(text: string, index: TitleIndex): Lookup | null {
   if (WATCHED_LIST.test(q)) return { kind: "watched-list", others: [] };
   for (const [kind, pattern] of PATTERNS) {
     const m = q.match(pattern);
-    const found = m && resolveTitle(m[1]!, index);
+    const found = m && !PRONOUNS.has(m[1]!) && resolveTitle(m[1]!, index);
     if (found) return { kind, ...found };
   }
   return null;

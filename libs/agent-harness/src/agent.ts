@@ -76,7 +76,6 @@ export interface Tool<Args = unknown, Result = unknown> {
 }
 
 export interface ToolRegistry {
-  register<A, R>(tool: Tool<A, R>): void;
   get(name: string): Tool | undefined;
   list(): Tool[];
   specs(): ToolSpec[];
@@ -96,7 +95,6 @@ export type AgentEvent =
   /** `chars` is the size sent back to the model; `truncated` when maxToolResultChars cut it. */
   | { type: "tool_result"; callId: string; result: unknown; cached: boolean; chars: number; truncated: boolean }
   | { type: "tool_error"; call: ToolCall; error: string }
-  | { type: "final"; message: ChatMessage }
   | { type: "limit_reached"; iterations: number }
   | { type: "timed_out"; ms: number };
 

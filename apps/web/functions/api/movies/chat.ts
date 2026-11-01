@@ -10,8 +10,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const parsed = chatRequestSchema.safeParse(body.value);
   if (!parsed.success) return Response.json({ error: "Invalid request", details: parsed.error.issues.map((i) => i.message) }, { status: 400 });
   try {
-    const { message, usage, model, timings, serverTiming } = await runMovieChat(env, parsed.data.messages, { model: CHAT_TIER_MODELS[parsed.data.tier], timeoutMs: CHAT_TIER_TIMEOUT_MS[parsed.data.tier] });
-    return Response.json({ message, usage, model, timings }, { headers: { "Server-Timing": serverTiming } });
+    const { message, usage, model } = await runMovieChat(env, parsed.data.messages, { model: CHAT_TIER_MODELS[parsed.data.tier], timeoutMs: CHAT_TIER_TIMEOUT_MS[parsed.data.tier] });
+    return Response.json({ message, usage, model });
   } catch (e) {
     if (e instanceof TimeoutError) return Response.json({ error: MODEL_TOO_SLOW }, { status: 504 });
     // Details stay in the server log. Common causes: daily Workers AI allocation used up, AI Gateway rate limit.

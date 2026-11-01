@@ -48,7 +48,6 @@ interface MovieDetails {
   id: number;
   title: string;
   original_title: string;
-  original_language: string;
   release_date: string;
   runtime: number | null;
   overview: string;
@@ -197,7 +196,6 @@ async function main() {
       genres: d.genres.map((g) => genreId(g.name)),
       rating: Math.round(d.vote_average * 10) / 10,
       votes: d.vote_count,
-      language: d.original_language,
       cast: [...d.credits.cast].sort((a, b) => a.order - b.order).slice(0, TOP_CAST).map((c) => ref(c.name)),
       directors: [...new Set(d.credits.crew.filter((c) => c.job === "Director").map((c) => c.name))].map(ref),
     }));
@@ -212,9 +210,6 @@ async function main() {
       lap(`Wrote catalog-meta.json (${(metaJson.length / 1024).toFixed(0)} KB)${meta.vectors ? `, vectors: ${meta.vectors.file}` : ", no vectors"}`);
     };
 
-    const languages = Object.entries(movies.reduce<Record<string, number>>((acc, m) => ({ ...acc, [m.language ?? "?"]: (acc[m.language ?? "?"] ?? 0) + 1 }), {}))
-      .sort((a, b) => b[1] - a[1]).slice(0, 8).map(([l, n]) => `${l} ${((n / movies.length) * 100).toFixed(0)}%`);
-    console.log(`  Languages: ${languages.join(", ")}`);
 
     await rm("public/data/stories", { recursive: true, force: true });
     await mkdir("public/data/stories", { recursive: true });

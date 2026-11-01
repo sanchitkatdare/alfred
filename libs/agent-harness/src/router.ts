@@ -15,16 +15,13 @@ export interface RouteDecision {
 }
 
 export interface RouterOptions {
-  /** Chip kind that marks a task. Default "task". */
-  taskKind?: string;
   /** Chip kinds that need vector search even without free text, for example "similar". */
   semanticKinds?: string[];
 }
 
 export function decideRoute(result: Pick<ParseResult, "chips" | "leftover">, options: RouterOptions = {}): RouteDecision {
-  const taskKind = options.taskKind ?? "task";
   const semanticKinds = new Set(options.semanticKinds ?? []);
-  const tasks = result.chips.filter((c) => c.kind === taskKind);
+  const tasks = result.chips.filter((c) => c.kind === "task");
   if (tasks.length) {
     return { route: "assistant", reason: `Task requested: ${tasks.map((t) => t.label).join(", ")}` };
   }

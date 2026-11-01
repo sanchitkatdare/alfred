@@ -8,11 +8,11 @@ export function defineTool<Args, Result>(tool: Tool<Args, Result>): Tool<Args, R
 
 export function createToolRegistry(tools: Tool<any, any>[] = []): ToolRegistry {
   const byName = new Map<string, Tool<any, any>>();
-  const registry: ToolRegistry = {
-    register(tool) {
-      if (byName.has(tool.name)) throw new Error(`Tool "${tool.name}" is already registered`);
-      byName.set(tool.name, tool);
-    },
+  for (const tool of tools) {
+    if (byName.has(tool.name)) throw new Error(`Tool "${tool.name}" is already registered`);
+    byName.set(tool.name, tool);
+  }
+  return {
     get: (name) => byName.get(name),
     list: () => [...byName.values()],
     specs: (): ToolSpec[] =>
@@ -22,6 +22,4 @@ export function createToolRegistry(tools: Tool<any, any>[] = []): ToolRegistry {
         parameters: z.toJSONSchema(t.schema) as Record<string, unknown>,
       })),
   };
-  tools.forEach((t) => registry.register(t));
-  return registry;
 }

@@ -10,6 +10,11 @@ const detect = (q: string) => {
 };
 
 describe("detectLookup", () => {
+  it.each(["what is it about", "how long is it", "who directed them", "tell me about her", "who is in that one"])("does not read a pronoun as a title: %s", (q) => {
+    expect(detect(q)).toBeNull();
+  });
+
+
   it.each([
     ["Who directed Inception?", "director:Inception 2010"],
     ["who is the director of the dark knight", "director:The Dark Knight 2008"],

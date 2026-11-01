@@ -310,7 +310,7 @@ footer { font-size: 13px; color: var(--muted); }
       <thead><tr><th>Model</th><th>Failure pattern</th><th>Fix</th></tr></thead>
       <tbody>
         <tr><td>granite-4.0-h-micro</td><td>Put genres and negations in free text ("no horror") instead of filters</td><td>Parser hints: the rule parser's chips become hard filters. Raised the pass rate from 81% to 93%.</td></tr>
-        <tr><td>granite-4.0-h-micro</td><td>Sometimes answers without calling a tool</td><td>Open: force a tool call on the first turn, or retry once</td></tr>
+        <tr><td>granite-4.0-h-micro</td><td>Sometimes answers without calling a tool</td><td>Fixed 2026-10-12: a tool call is required on the first turn. 57 of 58 runs made one on 2026-11-01.</td></tr>
         <tr><td>qwen3-30b-a3b-fp8</td><td>Answers from memory, skipping tools</td><td>None found. Not chosen.</td></tr>
         <tr><td>glm-4.7-flash, gemma-4-26b-a4b-it</td><td>Accurate, but slow outliers of 25-44 s</td><td>Not fixable on our side</td></tr>
         <tr><td>All models</td><td>Malformed tool arguments made Workers AI reject the conversation</td><td>Harness bug, fixed: malformed arguments are sent back as <code>{}</code></td></tr>

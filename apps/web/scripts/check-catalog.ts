@@ -89,7 +89,7 @@ for (const [q, expected] of SCENES) {
     continue;
   }
   present++;
-  const { vector } = (await embedQuery(proxy.env, q)).body;
+  const { vector } = await embedQuery(proxy.env, q);
   t = performance.now();
   const ranked = rankByVector(index, vector, undefined, 50);
   rankTimes.push(performance.now() - t);

@@ -8,8 +8,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const parsed = embedRequestSchema.safeParse(body.value);
   if (!parsed.success) return Response.json({ error: "Invalid request" }, { status: 400 });
   try {
-    const { body: result, serverTiming } = await embedQuery(env, parsed.data.text);
-    return Response.json(result, { headers: { "Server-Timing": serverTiming } });
+    return Response.json(await embedQuery(env, parsed.data.text));
   } catch (e) {
     // Details stay in the server log. Common cause: daily Workers AI allocation used up.
     console.error("embed failed", e);

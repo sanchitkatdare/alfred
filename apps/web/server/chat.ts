@@ -3,7 +3,7 @@ import { z } from "zod";
 import { movieToolSpecs } from "../src/movies/tools";
 import type { Env } from "./env";
 import { LIMITS } from "./http";
-import { createTimer, withTimeout } from "./timing";
+import { withTimeout } from "./timing";
 
 /** Chosen by the model comparison (docs/architecture.html, Model selection). Needs parser hints. The client cannot change it. */
 export const MOVIE_CHAT_MODEL = "@cf/ibm-granite/granite-4.0-h-micro";
@@ -61,14 +61,8 @@ export const chatRequestSchema = z
     { message: `Conversation is longer than ${LIMITS.conversationChars} characters. Start a new one.` },
   );
 
-export interface ChatResult extends LLMResponse {
-  timings: Record<string, number>;
-  serverTiming: string;
-}
-
 /** One LLM turn. The server sets the model, system prompt, tools and token limit. */
-export async function runMovieChat(env: Env, messages: ChatMessage[], options: { model?: string; gateway?: boolean; timeoutMs?: number } = {}): Promise<ChatResult> {
-  const timer = createTimer();
+export async function runMovieChat(env: Env, messages: ChatMessage[], options: { model?: string; gateway?: boolean; timeoutMs?: number } = {}): Promise<LLMResponse> {
   const model = options.model ?? MOVIE_CHAT_MODEL;
   const input = {
     messages: toOpenAIMessages([{ role: "system", content: movieSystemPrompt() }, ...messages]),
@@ -80,6 +74,6 @@ export async function runMovieChat(env: Env, messages: ChatMessage[], options: {
   };
   const gateway = options.gateway === false ? undefined : { gateway: { id: AI_GATEWAY_ID, metadata: { app: "movies" } } };
   const ai = env.AI as unknown as { run(model: string, input: unknown, options?: unknown): Promise<unknown> };
-  const raw = await timer.step("llm", () => withTimeout(ai.run(model, input, gateway), options.timeoutMs ?? CHAT_TIMEOUT_MS, "LLM call"));
-  return { ...fromOpenAIResponse(raw), model, timings: timer.steps(), serverTiming: timer.header() };
+  const raw = await withTimeout(ai.run(model, input, gateway), options.timeoutMs ?? CHAT_TIMEOUT_MS, "LLM call");
+  return { ...fromOpenAIResponse(raw), model };
 }

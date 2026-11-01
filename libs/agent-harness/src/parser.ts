@@ -58,8 +58,6 @@ export interface ParserConfig {
   rules?: Rule[];
   phrases?: PhraseChip[];
   stopWords?: Iterable<string>;
-  negationWords?: Iterable<string>;
-  negationPhrases?: string[][];
 }
 
 export const DEFAULT_STOP_WORDS = (
@@ -162,8 +160,8 @@ export function parse(text: string, config: ParserConfig): ParseResult {
 
   const dict = config.dictionary;
   const stop = new Set(config.stopWords ?? DEFAULT_STOP_WORDS);
-  const negWords = new Set(config.negationWords ?? DEFAULT_NEGATION_WORDS);
-  const negPhrases = config.negationPhrases ?? DEFAULT_NEGATION_PHRASES;
+  const negWords = new Set(DEFAULT_NEGATION_WORDS);
+  const negPhrases = DEFAULT_NEGATION_PHRASES;
   const phrases = [...(config.phrases ?? [])].sort((a, b) => b.phrase.length - a.phrase.length);
   const rules = config.rules ?? [];
 

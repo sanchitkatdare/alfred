@@ -10,7 +10,6 @@ export interface Movie {
   directors: string[];
   originalTitle?: string;
   votes?: number;
-  language?: string;
 }
 
 /** Shape of public/data/catalog-meta.json, written by scripts/seed.ts. People are stored once and referenced by index. */

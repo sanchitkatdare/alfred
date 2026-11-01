@@ -13,7 +13,7 @@ export interface Turn {
   error?: string;
 }
 
-const short = (value: unknown, max = 110) => {
+export const short = (value: unknown, max = 110) => {
   const text = typeof value === "string" ? value : JSON.stringify(value);
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 };

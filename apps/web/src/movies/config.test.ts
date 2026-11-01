@@ -11,6 +11,35 @@ const filtered = (q: string, watched = new Set<number>()) => filterCatalog(SAMPL
 const titlesOf = (q: string) => filtered(q).map((m) => m.title);
 const routeOf = (q: string) => decideRoute(parse(q, config), MOVIE_ROUTER_OPTIONS).route;
 
+describe("plot words stay plot text", () => {
+  it.each([
+    ["a boy who lives under a bridge", []],
+    ["a fight over a woman", []],
+    ["under one roof", []],
+    ["a heist in new york", []],
+    ["an old man and his dog", []],
+    ["a 12 year old boy finds a dragon", []],
+    ["short man with big dreams", []],
+    ["something like it", []],
+    ["like her", []],
+  ])("%s", (q, expected) => {
+    expect(chipsOf(q)).toEqual(expected);
+  });
+
+  it.each([
+    ["under an hour", ["runtime:≤ 60 min"]],
+    ["over two hours", ["runtime:≥ 120 min"]],
+    ["short comedy", ["runtime:≤ 100 min", "genre:Comedy"]],
+    ["quick sci-fi movie", ["runtime:≤ 100 min", "genre:Sci-fi"]],
+    ["old movies", ["year:Before 2000"]],
+    ["new horror", ["year:2015 or later", "genre:Horror"]],
+    ["something recent", ["year:2015 or later"]],
+    ["classic", ["year:Before 2000"]],
+  ])("still filters: %s", (q, expected) => {
+    expect(chipsOf(q)).toEqual(expected);
+  });
+});
+
 describe("numbers: rating or runtime", () => {
   it.each([
     ["movie above 7", ["rating:Rating ≥ 7"]],

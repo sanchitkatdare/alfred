@@ -39,10 +39,6 @@ export interface DictionaryOptions {
   people?: PersonSpec[];
   /** Surnames that are also common words. They match only as part of a full name. */
   commonWords?: Iterable<string>;
-  /** A surname resolves to its top person when that person has this many times more items than the next. */
-  surnameDominance?: number;
-  /** Minimum item count for a first-name suggestion. */
-  minFirstNameCount?: number;
   /** Minimum item count for a surname to match alone. Rare people match only by full name. */
   minSurnameCount?: number;
 }
@@ -62,8 +58,10 @@ export function buildDictionary(options: DictionaryOptions): Dictionary {
   const firstNames = new Map<string, string[]>();
   const commonWordSurnames = new Map<string, string[]>();
   const common = new Set(options.commonWords ?? []);
-  const dominance = options.surnameDominance ?? 3;
-  const minFirst = options.minFirstNameCount ?? 2;
+  /* A surname resolves to its top person when that person has this many times more items than the next. */
+  const dominance = 3;
+  /* Minimum item count for a first-name suggestion. */
+  const minFirst = 2;
   const minSurname = options.minSurnameCount ?? 1;
 
   for (const t of options.terms ?? []) {

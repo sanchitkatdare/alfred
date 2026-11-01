@@ -23,8 +23,8 @@ function save(ids: number[]): void {
 
 /**
  * Watched movie IDs (TMDB IDs), stored per browser. A new browser starts empty.
- * The callbacks are stable, and getWatched() always returns the latest list, so the assistant's
- * tools can read and write it during a run that spans several renders.
+ * The callbacks are stable, and getWatched() returns the latest list, so the assistant's
+ * tools can read it during a run that spans several renders.
  */
 export function useWatched() {
   const [ids, setIds] = useState<number[]>(load);
@@ -36,7 +36,6 @@ export function useWatched() {
     setIds((prev) => {
       const next = [...prev.filter((x) => x !== id), id].slice(-LIMIT);
       save(next);
-      latest.current = new Set(next);
       return next;
     });
   }, []);
@@ -44,13 +43,11 @@ export function useWatched() {
     setIds((prev) => {
       const next = prev.filter((x) => x !== id);
       save(next);
-      latest.current = new Set(next);
       return next;
     });
   }, []);
   const clear = useCallback(() => {
     save([]);
-    latest.current = new Set();
     setIds([]);
   }, []);
   const getWatched = useCallback(() => latest.current, []);

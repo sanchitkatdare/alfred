@@ -64,7 +64,6 @@ export function createAgent(options: AgentOptions): Agent {
 
         const calls = message.toolCalls ?? [];
         if (!calls.length) {
-          emit({ type: "final", message });
           return { status: "done", message, transcript, iterations: iteration };
         }
 

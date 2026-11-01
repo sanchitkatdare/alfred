@@ -13,7 +13,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { createAgent, createToolRegistry, parse, type AgentEvent, type LLMProvider } from "@alfred/agent-harness";
 import { getPlatformProxy } from "wrangler";
-import { movieSystemPrompt, runMovieChat } from "../server/chat.ts";
+import { MOVIE_CHAT_MODEL, MOVIE_ORACLE_MODEL, movieSystemPrompt, runMovieChat } from "../server/chat.ts";
 import { embedQuery } from "../server/embed.ts";
 import type { Env } from "../server/env.ts";
 import { hydrateCatalog, type CatalogMeta, type Movie } from "../src/movies/catalog.ts";
@@ -27,7 +27,7 @@ import { createVectorIndex, rankByVector } from "../src/movies/vectors.ts";
 const { values: cli, positionals } = parseArgs({ allowPositionals: true, allowNegative: true, options: { runs: { type: "string", default: "1" }, hints: { type: "boolean", default: true }, only: { type: "string" } } });
 const HINTS = cli.hints;
 const RUNS = Number(cli.runs);
-const MODELS = positionals.length ? positionals : ["@cf/ibm-granite/granite-4.0-h-micro", "@cf/google/gemma-4-26b-a4b-it"];
+const MODELS = positionals.length ? positionals : [MOVIE_CHAT_MODEL, MOVIE_ORACLE_MODEL];
 
 type Args = Record<string, any>;
 interface Task {
@@ -39,7 +39,6 @@ interface Task {
   args?: (a: Args) => boolean;
   answer?: RegExp;
   answerNot?: RegExp;
-  check?: (watched: Set<number>, byTitle: (t: string) => number) => boolean;
 }
 
 const people = (a: Args) => (a.people ?? []).join(" ").toLowerCase();
@@ -107,7 +106,7 @@ for (let round = 1; round <= RUNS; round++) for (const model of MODELS) {
     const tools = createToolRegistry(createMovieTools({
       catalog,
       getWatched: () => watched,
-      search: async (text, ids) => rankByVector(vectorIndex, (await embedQuery(env, text)).body.vector, ids),
+      search: async (text, ids) => rankByVector(vectorIndex, (await embedQuery(env, text)).vector, ids),
       details: loadStories,
       getHints: () => hints,
     }));
@@ -123,7 +122,7 @@ for (let round = 1; round <= RUNS; round++) for (const model of MODELS) {
       },
     };
     const events: AgentEvent[] = [];
-    // Same settings as the app (src/movies/assistant.ts).
+    // Same settings as the app (src/movies/assistant.ts), but no time limit for the question, to measure the full duration.
     const agent = createAgent({ provider, tools, system: movieSystemPrompt(), maxIterations: 5, retry: { maxValidationRetries: 2 }, maxToolResultChars: MAX_TOOL_RESULT_CHARS, onEvent: (e) => events.push(e) });
 
     const start = performance.now();
@@ -144,7 +143,6 @@ for (let round = 1; round <= RUNS; round++) for (const model of MODELS) {
     })) fails.push(`args ${JSON.stringify(matching[0]!.arguments)}`);
     if (task.answer && !task.answer.test(answer)) fails.push("answer missing expected text");
     if (task.answerNot?.test(answer)) fails.push("answer lists a watched movie");
-    if (task.check && !task.check(watched, byTitle)) fails.push("state check failed");
 
     const r: TaskResult = { model, run: round, task: task.id, pass: !fails.length, why: fails.join("; "), ms, neurons: Math.round(neurons * 10) / 10, llmCalls, validationErrors, answer, toolCalls: calls.map((c) => ({ name: c.name, arguments: c.arguments })) };
     results.push(r);

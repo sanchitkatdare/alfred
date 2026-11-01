@@ -4,7 +4,7 @@ import tmdbLogo from "../../../../assets/tmdb.svg";
 import { createEmbedClient, friendlyError } from "./api";
 import { DevPanel } from "./DevPanel";
 import { useDevLog, type DevLog } from "./devlog";
-import { AssistantPanel, describeEvent, type Turn } from "./AssistantPanel";
+import { AssistantPanel, describeEvent, short, type Turn } from "./AssistantPanel";
 import { createMovieAssistant, isTimeout, QUESTION_LIMIT_MS, timeoutMessage } from "./assistant";
 import type { CatalogMeta, Movie } from "./catalog";
 import { buildMovieParserConfig, MOVIE_ROUTER_OPTIONS } from "./config";
@@ -53,11 +53,6 @@ function blend(a: ArrayLike<number>, b: ArrayLike<number>): number[] {
   return Array.from(a, (x, i) => x / na + b[i]! / nb);
 }
 
-const short = (value: unknown, max = 160) => {
-  const text = typeof value === "string" ? value : JSON.stringify(value);
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
-};
-
 /** Dev-mode line for each harness event; null for events the dev log does not show. */
 function devItemFor(e: AgentEvent) {
   switch (e.type) {
@@ -71,11 +66,11 @@ function devItemFor(e: AgentEvent) {
         serverCall: true,
       };
     case "tool_call":
-      return { stage: "assistant" as const, label: `Tool: ${e.call.name}`, detail: `model asked for ${short(e.call.arguments)}` };
+      return { stage: "assistant" as const, label: `Tool: ${e.call.name}`, detail: `model asked for ${short(e.call.arguments, 160)}` };
     case "tool_result":
       return { stage: "assistant" as const, label: "Tool result", detail: `${e.chars} characters sent to the model${e.truncated ? ", truncated" : ""}${e.cached ? ", repeat call (not run)" : ""}` };
     case "validation_error":
-      return { stage: "assistant" as const, label: "Invalid tool call, sent back", detail: short(e.error.split("\n")[0]) };
+      return { stage: "assistant" as const, label: "Invalid tool call, sent back", detail: short(e.error.split("\n")[0], 160) };
     case "tool_error":
       return { stage: "assistant" as const, label: "Tool error", detail: e.error };
     case "limit_reached":
@@ -103,6 +98,8 @@ interface MovieSearchProps {
   onToggleDev(): void;
 }
 
+const loadItem = (file: string, bytes: number, ms: number) => ({ stage: "data" as const, label: file, detail: `${(bytes / 1e6).toFixed(2)} MB`, ms });
+
 function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleDev }: MovieSearchProps) {
   const [query, setQuery] = useState(EXAMPLES[2]!);
   const [removed, setRemoved] = useState<ReadonlySet<string>>(new Set());
@@ -115,8 +112,8 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
   // Search data loads after the page appears, so typing and filters work first.
   const vectorsRef = useRef<Promise<VectorIndex> | null>(null);
   const reportLoad = useCallback(
-    (file: string, bytes: number, ms: number) => dev.add(loadEntry, { stage: "data", label: file, detail: `${(bytes / 1e6).toFixed(2)} MB`, ms }),
-    [dev, loadEntry],
+    (file: string, bytes: number, ms: number) => dev.add(loadEntry, loadItem(file, bytes, ms)),
+    [dev.add, loadEntry],
   );
   const getVectors = useCallback(() => {
     if (!vectorsRef.current) {
@@ -132,14 +129,14 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
       void Promise.allSettled([getVectors(), loadSynopses(reportLoad).then(setSynopses)]).then(() => loadEntry !== null && dev.finish(loadEntry));
     }, 300);
     return () => clearTimeout(t);
-  }, [getVectors, reportLoad, dev, loadEntry]);
+  }, [getVectors, reportLoad, dev.finish, loadEntry]);
 
   // The dev-log entry that background reports (embedding, tool searches) belong to.
   const currentEntry = useRef<number | null>(null);
 
   const embed = useMemo(
     () => createEmbedClient(undefined, (r) => dev.add(currentEntry.current, { stage: "search", label: r.cached ? "Query vector from browser cache" : "Query vector from server", detail: `"${short(r.text, 60)}"${r.neurons !== undefined ? " · neurons estimated from tokens" : ""}`, ms: r.ms, neurons: r.neurons, serverCall: !r.cached })),
-    [dev],
+    [dev.add],
   );
   const search = useCallback(async (text: string, ids: number[]) => rankByVector(await getVectors(), await embed(text), ids), [embed, getVectors]);
   const ask = useMemo(
@@ -154,7 +151,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
             ms: r.ms,
           }),
       }),
-    [catalog, getWatched, search, dev],
+    [catalog, getWatched, search, dev.add],
   );
 
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -196,7 +193,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
   const logRules = (id: number) => {
     dev.add(id, { stage: "rules", label: `Route: ${decision.route}`, detail: `${decision.reason} · parsed in ${parseMs.toFixed(2)} ms` });
     const hints = chipsToSearchHints(chips);
-    if (Object.keys(hints).length) dev.add(id, { stage: "rules", label: "Hard filters from chips", detail: short(hints) });
+    if (Object.keys(hints).length) dev.add(id, { stage: "rules", label: "Hard filters from chips", detail: short(hints, 160) });
   };
   const runSearch = async () => {
     setSearching(true);
@@ -297,12 +294,11 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
     logRules(entry);
     const started = performance.now();
     const m = l.movie;
-    const result = l.kind === "about" && m ? { text: aboutAnswer(m, (await loadStories([m.id]))[0]) } : { text: liveLookupText ?? "" };
+    if (l.kind === "about" && m) setLookupResult({ query, text: aboutAnswer(m, (await loadStories([m.id]))[0]) });
     dev.add(entry, { stage: "rules", label: "Answered by code", detail: `${l.kind}${l.kind === "about" ? " · 1 story file" : ""} · no LLM`, ms: Math.round(performance.now() - started) });
     dev.finish(entry);
-    setLookupResult({ query, ...result });
   };
-  const lookupText = lookupResult?.query === query ? lookupResult : liveLookupText ? { text: liveLookupText } : null;
+  const lookupText = liveLookupText ? { text: liveLookupText } : lookupResult?.query === query ? lookupResult : null;
 
   const resetConversation = () => {
     history.current = [];
@@ -522,7 +518,7 @@ export function MoviesPage() {
     loadStarted.current = true;
     const entry = dev.start("load", "Page load");
     setLoadEntry(entry);
-    const report = (file: string, bytes: number, ms: number) => dev.add(entry, { stage: "data", label: file, detail: `${(bytes / 1e6).toFixed(2)} MB`, ms });
+    const report = (file: string, bytes: number, ms: number) => dev.add(entry, loadItem(file, bytes, ms));
     loadCatalog(report)
       .then(({ meta, catalog }) => {
         const started = performance.now();
