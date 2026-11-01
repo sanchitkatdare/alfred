@@ -63,6 +63,7 @@ p { margin: 0; }
 @media (max-width: 760px) { .grid { grid-template-columns: minmax(0, 1fr); } }
 .panel { display: grid; gap: 10px; align-content: start; min-width: 0; }
 .panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.panel-head-side { display: flex; justify-content: flex-end; align-items: baseline; gap: 4px 10px; flex-wrap: wrap; margin-left: auto; }
 
 .results { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
 .results li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 0; border-bottom: 1px solid var(--line); align-items: center; }

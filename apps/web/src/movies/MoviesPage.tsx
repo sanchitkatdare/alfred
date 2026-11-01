@@ -5,7 +5,7 @@ import { createEmbedClient, friendlyError } from "./api";
 import { DevPanel } from "./DevPanel";
 import { useDevLog, type DevLog } from "./devlog";
 import { AssistantPanel, describeEvent, type Turn } from "./AssistantPanel";
-import { createMovieAssistant } from "./assistant";
+import { createMovieAssistant, isTimeout, QUESTION_LIMIT_MS, timeoutMessage } from "./assistant";
 import type { CatalogMeta, Movie } from "./catalog";
 import { buildMovieParserConfig, MOVIE_ROUTER_OPTIONS } from "./config";
 import { loadCatalog, loadStories, loadSynopses, loadVectors } from "./data";
@@ -65,7 +65,7 @@ function devItemFor(e: AgentEvent) {
       return {
         stage: "assistant" as const,
         label: `Model call ${e.iteration}`,
-        detail: `${e.toolCalls} tool call${e.toolCalls === 1 ? "" : "s"}${e.usage ? ` · ${e.usage.inputTokens} in / ${e.usage.outputTokens} out tokens` : ""}`,
+        detail: `${e.model ? `${e.model.split("/").pop()} · ` : ""}${e.toolCalls} tool call${e.toolCalls === 1 ? "" : "s"}${e.usage ? ` · ${e.usage.inputTokens} in / ${e.usage.outputTokens} out tokens` : ""}`,
         ms: e.ms,
         neurons: e.usage?.neurons,
         serverCall: true,
@@ -80,6 +80,8 @@ function devItemFor(e: AgentEvent) {
       return { stage: "assistant" as const, label: "Tool error", detail: e.error };
     case "limit_reached":
       return { stage: "assistant" as const, label: "Step limit reached", detail: `${e.iterations} model calls` };
+    case "timed_out":
+      return { stage: "assistant" as const, label: "Time limit reached", detail: `${e.ms / 1000} s` };
     default:
       return null;
   }
@@ -240,12 +242,14 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
   // Assistant
   const history = useRef<ChatMessage[]>([]);
   const abort = useRef<AbortController | null>(null);
-  const runAssistant = async () => {
+  const runAssistant = async (tier: "default" | "oracle" = "default") => {
     const question = query.trim();
     if (!question) return;
     const turnIndex = turns.length;
     const update = (change: (t: Turn) => Turn) => setTurns((all) => all.map((t, i) => (i === turnIndex ? change(t) : t)));
-    setTurns((all) => [...all, { question, steps: [], status: "running" }]);
+    const waitNote = tier === "oracle" ? [{ kind: "think" as const, text: `Oracle can take up to ${QUESTION_LIMIT_MS.oracle / 1000} s. Stop ends it early.` }] : [];
+    setTurns((all) => [...all, { question, steps: waitNote, status: "running" }]);
+    let found: { title: string; year: number }[] = [];
     abort.current = new AbortController();
     const entry = dev.start("assistant", question);
     currentEntry.current = entry;
@@ -254,8 +258,11 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
       const result = await ask(question, {
         history: history.current,
         hints: chipsToSearchHints(chips),
+        tier,
         signal: abort.current.signal,
         onEvent: (e) => {
+          const movies = e.type === "tool_result" ? (e.result as { movies?: { title: string; year: number }[] }).movies : undefined;
+          if (movies?.length) found = movies;
           const step = describeEvent(e);
           if (step) update((t) => ({ ...t, steps: [...t.steps, step] }));
           const item = devItemFor(e);
@@ -265,6 +272,8 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
       if (result.status === "done") {
         history.current = result.transcript.filter((m) => m.role !== "system");
         update((t) => ({ ...t, status: "done", answer: result.message?.content || "(no answer)" }));
+      } else if (isTimeout(result)) {
+        update((t) => ({ ...t, status: "failed", error: timeoutMessage(found) }));
       } else {
         const error = result.status === "limit_reached" ? "The assistant ran out of steps. Try a more specific question." : friendlyError(result.error ?? "The assistant failed.");
         update((t) => ({ ...t, status: "failed", error: error === "Aborted" ? "Stopped." : error }));
@@ -415,7 +424,10 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
           <div className="panel">
             <div className="panel-head">
               <h2>{showSemantic ? "Best matches by meaning" : "Results"}</h2>
-              <span className="note">{showSemantic ? `ranked in ${semantic.ms} ms` : `${live.movies.length} of ${catalog.length} match`}</span>
+              <div className="panel-head-side">
+                <span className="note">{showSemantic ? `ranked in ${semantic.ms} ms` : `${live.movies.length} of ${catalog.length} match`}</span>
+                {showSemantic && <button type="button" className="linkish" disabled={busy} onClick={() => void runAssistant("oracle")}>No, Alfred, not what I wanted. Ask Oracle instead</button>}
+              </div>
             </div>
             {searchError && (
               <p className="answer failed dismissible" role="alert">
@@ -434,11 +446,6 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
               ))}
               {!shown.length && <li><span className="empty">No movie matches these filters.</span></li>}
             </ul>
-            {showSemantic && (
-              <p className="note">
-                <button type="button" className="linkish" disabled={busy} onClick={() => void runAssistant()}>No, Alfred, not what I wanted. Ask Oracle instead</button>
-              </p>
-            )}
             {live.hiddenWatched > 0 && <p className="note">{live.hiddenWatched} hidden because you marked them watched.</p>}
             {watched.size > 0 && (
               <details className="watched">

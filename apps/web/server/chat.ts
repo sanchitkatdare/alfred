@@ -7,10 +7,16 @@ import { createTimer, withTimeout } from "./timing";
 
 /** Chosen by the model comparison (docs/architecture.html, Model selection). Needs parser hints. The client cannot change it. */
 export const MOVIE_CHAT_MODEL = "@cf/ibm-granite/granite-4.0-h-micro";
+/** Behind "Ask Oracle instead": better at recall, about 8x the neurons of the default on those tasks (2026-10-12). */
+export const MOVIE_ORACLE_MODEL = "@cf/google/gemma-4-26b-a4b-it";
+/** The browser names a tier, never a model. */
+export const CHAT_TIER_MODELS = { default: MOVIE_CHAT_MODEL, oracle: MOVIE_ORACLE_MODEL } as const;
 export const MAX_OUTPUT_TOKENS = 700;
 export const AI_GATEWAY_ID = "alfred";
-/** One LLM turn. The agent loop makes 2-5 turns per task. */
+/** One LLM turn, for scripts that measure models. The agent loop makes 2-5 turns per task. */
 export const CHAT_TIMEOUT_MS = 25_000;
+/** One LLM turn in the app. The browser limits the whole question (`QUESTION_LIMIT_MS`). */
+export const CHAT_TIER_TIMEOUT_MS = { default: 10_000, oracle: 20_000 } as const;
 
 const TOOL_SPECS = movieToolSpecs();
 
@@ -32,6 +38,7 @@ const ROLE_LIMITS = { user: LIMITS.userMessageChars, assistant: LIMITS.assistant
 
 export const chatRequestSchema = z
   .object({
+    tier: z.enum(["default", "oracle"]).default("default"),
     messages: z
       .array(
         z
@@ -60,7 +67,7 @@ export interface ChatResult extends LLMResponse {
 }
 
 /** One LLM turn. The server sets the model, system prompt, tools and token limit. */
-export async function runMovieChat(env: Env, messages: ChatMessage[], options: { model?: string; gateway?: boolean } = {}): Promise<ChatResult> {
+export async function runMovieChat(env: Env, messages: ChatMessage[], options: { model?: string; gateway?: boolean; timeoutMs?: number } = {}): Promise<ChatResult> {
   const timer = createTimer();
   const model = options.model ?? MOVIE_CHAT_MODEL;
   const input = {
@@ -73,6 +80,6 @@ export async function runMovieChat(env: Env, messages: ChatMessage[], options: {
   };
   const gateway = options.gateway === false ? undefined : { gateway: { id: AI_GATEWAY_ID, metadata: { app: "movies" } } };
   const ai = env.AI as unknown as { run(model: string, input: unknown, options?: unknown): Promise<unknown> };
-  const raw = await timer.step("llm", () => withTimeout(ai.run(model, input, gateway), CHAT_TIMEOUT_MS, "LLM call"));
-  return { ...fromOpenAIResponse(raw), timings: timer.steps(), serverTiming: timer.header() };
+  const raw = await timer.step("llm", () => withTimeout(ai.run(model, input, gateway), options.timeoutMs ?? CHAT_TIMEOUT_MS, "LLM call"));
+  return { ...fromOpenAIResponse(raw), model, timings: timer.steps(), serverTiming: timer.header() };
 }

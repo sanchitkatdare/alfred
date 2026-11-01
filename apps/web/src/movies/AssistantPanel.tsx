@@ -40,6 +40,8 @@ export function describeEvent(event: AgentEvent): Step | null {
       return { kind: "error", text: event.error };
     case "limit_reached":
       return { kind: "error", text: `Stopped after ${event.iterations} steps` };
+    case "timed_out":
+      return { kind: "error", text: `Stopped after ${event.ms / 1000} s` };
     default:
       return null;
   }

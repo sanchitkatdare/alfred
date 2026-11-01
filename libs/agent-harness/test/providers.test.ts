@@ -66,6 +66,20 @@ describe("HTTP provider", () => {
     expect(r.message.content).toBe("Hi");
   });
 
+  it("adds fixed body fields and returns the reported model", async () => {
+    let sent: unknown;
+    const provider = createHttpProvider("/x", {
+      body: { tier: "oracle" },
+      fetch: async (_url, init) => {
+        sent = JSON.parse(String(init!.body));
+        return new Response(JSON.stringify({ message: { role: "assistant", content: "Hi" }, model: "m1" }));
+      },
+    });
+    const r = await provider.complete({ messages: [{ role: "user", content: "u" }], tools: [] });
+    expect(sent).toEqual({ tier: "oracle", messages: [{ role: "user", content: "u" }] });
+    expect(r.model).toBe("m1");
+  });
+
   it("throws the server error message", async () => {
     const provider = createHttpProvider("/x", { fetch: async () => new Response(JSON.stringify({ error: "Daily AI quota used up" }), { status: 502 }) });
     await expect(provider.complete({ messages: [], tools: [] })).rejects.toThrow("Daily AI quota used up");

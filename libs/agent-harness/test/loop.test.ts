@@ -3,6 +3,37 @@ import { z } from "zod";
 import { createAgent, createToolRegistry, defineTool, type AgentEvent, type AgentOptions } from "../src";
 import { createScriptedProvider, say, toolCalls, type ScriptStep } from "../src/testing";
 
+describe("run time limit", () => {
+  const never = () => new Promise<never>(() => {});
+  const tools = () => createToolRegistry([defineTool({ name: "slow", description: "Never ends.", schema: z.object({}), run: never })]);
+  const base = { tools: tools(), system: "s", maxIterations: 3, retry: { maxValidationRetries: 0 } };
+
+  it("ends the run when the model does not answer in time", async () => {
+    const events: AgentEvent[] = [];
+    const agent = createAgent({ ...base, maxRunMs: 10, provider: { name: "stalled", complete: never }, onEvent: (e) => events.push(e) });
+    expect(await agent.run("x")).toMatchObject({ status: "timed_out", iterations: 1 });
+    expect(events.at(-1)).toEqual({ type: "timed_out", ms: 10 });
+  });
+
+  it("ends the run when a tool does not finish in time", async () => {
+    const agent = createAgent({ ...base, maxRunMs: 10, provider: createScriptedProvider([toolCalls(["slow", {}])]) });
+    expect((await agent.run("x")).status).toBe("timed_out");
+  });
+
+  it("still reports a user abort as failed", async () => {
+    const controller = new AbortController();
+    const agent = createAgent({ ...base, maxRunMs: 1_000, provider: { name: "stalled", complete: never } });
+    const run = agent.run("x", { signal: controller.signal });
+    controller.abort();
+    expect(await run).toMatchObject({ status: "failed" });
+  });
+
+  it("does not limit a run that finishes in time", async () => {
+    const agent = createAgent({ ...base, maxRunMs: 1_000, provider: createScriptedProvider([say("ok")]) });
+    expect((await agent.run("x")).status).toBe("done");
+  });
+});
+
 function setup(steps: ScriptStep[], overrides: Partial<AgentOptions> = {}) {
   const writes: string[] = [];
   const search = defineTool({

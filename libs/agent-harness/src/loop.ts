@@ -15,12 +15,20 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** Runs the loop described in agent.ts. */
 export function createAgent(options: AgentOptions): Agent {
-  const { provider, tools, system, maxIterations, retry, maxToolResultChars } = options;
+  const { provider, tools, system, maxIterations, retry, maxToolResultChars, maxRunMs } = options;
   const emit = (event: AgentEvent) => options.onEvent?.(event);
 
   return {
     async run(input, runOptions = {}): Promise<AgentResult> {
-      const signal = runOptions.signal;
+      const deadline = maxRunMs === undefined ? undefined : AbortSignal.timeout(maxRunMs);
+      const signal = deadline && runOptions.signal ? AbortSignal.any([deadline, runOptions.signal]) : (deadline ?? runOptions.signal);
+      /** Providers and tools may ignore the signal, so the run does not wait for them after an abort. */
+      const orAbort = <T>(work: Promise<T>): Promise<T> =>
+        signal ? Promise.race([work, new Promise<never>((_, reject) => signal.addEventListener("abort", () => reject(new Error("Aborted")), { once: true }))]) : work;
+      const timedOut = (iterations: number): AgentResult => {
+        emit({ type: "timed_out", ms: maxRunMs! });
+        return { status: "timed_out", transcript, iterations };
+      };
       const transcript: ChatMessage[] = [
         { role: "system", content: system },
         ...(runOptions.history ?? []).filter((m) => m.role !== "system"),
@@ -38,16 +46,18 @@ export function createAgent(options: AgentOptions): Agent {
       };
 
       for (let iteration = 1; iteration <= maxIterations; iteration++) {
+        if (deadline?.aborted) return timedOut(iteration - 1);
         if (signal?.aborted) return fail(iteration - 1, "Aborted");
         emit({ type: "llm_request", iteration });
 
         let message: ChatMessage;
         const started = Date.now();
         try {
-          const response = await provider.complete({ messages: transcript, tools: tools.specs(), signal });
+          const response = await orAbort(provider.complete({ messages: transcript, tools: tools.specs(), signal }));
           message = response.message;
-          emit({ type: "llm_response", iteration, ms: Date.now() - started, usage: response.usage, toolCalls: message.toolCalls?.length ?? 0 });
+          emit({ type: "llm_response", iteration, ms: Date.now() - started, usage: response.usage, model: response.model, toolCalls: message.toolCalls?.length ?? 0 });
         } catch (e) {
+          if (deadline?.aborted) return timedOut(iteration);
           return fail(iteration, `LLM provider "${provider.name}" failed: ${errorText(e)}`);
         }
         transcript.push(message);
@@ -83,10 +93,11 @@ export function createAgent(options: AgentOptions): Agent {
             continue;
           }
           try {
-            const result = await tool.run(args, { callId: call.id, signal });
+            const result = await orAbort(tool.run(args, { callId: call.id, signal }));
             if (key) cache.set(key, result);
             emit({ type: "tool_result", callId: call.id, result, cached: false, ...reply(call, stableStringify(result)) });
           } catch (e) {
+            if (deadline?.aborted) return timedOut(iteration);
             const error = `Tool "${call.name}" failed: ${errorText(e)}`;
             emit({ type: "tool_error", call, error });
             reply(call, error);

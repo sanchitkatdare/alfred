@@ -49,6 +49,8 @@ export interface LLMResponse {
   message: ChatMessage;
   /** `neurons` is set by Workers AI. */
   usage?: { inputTokens: number; outputTokens: number; neurons?: number };
+  /** Model that answered, when the provider reports it. */
+  model?: string;
 }
 
 /** One adapter per backend: Workers AI, a mock for tests, later others. */
@@ -88,14 +90,15 @@ export interface RetryPolicy {
 export type AgentEvent =
   | { type: "llm_request"; iteration: number }
   /** After each model call: duration and usage as reported by the provider. */
-  | { type: "llm_response"; iteration: number; ms: number; usage?: LLMResponse["usage"]; toolCalls: number }
+  | { type: "llm_response"; iteration: number; ms: number; usage?: LLMResponse["usage"]; model?: string; toolCalls: number }
   | { type: "tool_call"; call: ToolCall }
   | { type: "validation_error"; call: ToolCall; error: string; attempt: number }
   /** `chars` is the size sent back to the model; `truncated` when maxToolResultChars cut it. */
   | { type: "tool_result"; callId: string; result: unknown; cached: boolean; chars: number; truncated: boolean }
   | { type: "tool_error"; call: ToolCall; error: string }
   | { type: "final"; message: ChatMessage }
-  | { type: "limit_reached"; iterations: number };
+  | { type: "limit_reached"; iterations: number }
+  | { type: "timed_out"; ms: number };
 
 export interface AgentOptions {
   provider: LLMProvider;
@@ -105,12 +108,14 @@ export interface AgentOptions {
   retry: RetryPolicy;
   /** Longest tool result sent back to the LLM. Longer results are cut and marked. Match the server's tool-message limit. */
   maxToolResultChars?: number;
+  /** Time limit for one run. When it passes, the pending call is cancelled and the run ends as "timed_out". */
+  maxRunMs?: number;
   /** For the decision trace in the UI. */
   onEvent?(event: AgentEvent): void;
 }
 
 export interface AgentResult {
-  status: "done" | "limit_reached" | "failed";
+  status: "done" | "limit_reached" | "timed_out" | "failed";
   message?: ChatMessage;
   transcript: ChatMessage[];
   iterations: number;
