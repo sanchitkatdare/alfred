@@ -53,13 +53,13 @@ p { margin: 0; }
 
 .qbox { display: grid; gap: 10px; }
 .qbox label { font-weight: 600; font-size: 14px; }
-#q { width: 100%; font: 400 1.05rem/1.4 var(--f-body); padding: 13px 14px; border: 1.5px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); }
+#q, .qmirror { width: 100%; font: 400 1.05rem/1.4 var(--f-body); padding: 13px 14px; border: 1.5px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); }
 #q:focus { outline: none; border-color: var(--semantic); }
 .examples { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .ex { border: 1px solid var(--line); background: transparent; border-radius: 6px; padding: 3px 9px; font-size: 13px; color: var(--muted); }
 .ex:hover { color: var(--fg); border-color: var(--muted); }
 
-.grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; }
+.grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
 @media (max-width: 760px) { .grid { grid-template-columns: minmax(0, 1fr); } }
 .panel { display: grid; gap: 10px; align-content: start; min-width: 0; }
 .panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
@@ -147,3 +147,38 @@ p { margin: 0; }
 .watched summary { cursor: pointer; color: var(--muted); }
 .watched ul { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 4px; max-height: 240px; overflow: auto; }
 .watched li { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+
+/* Visuals (step 3.6) */
+.qinput { position: relative; flex: 1 1 240px; min-width: 0; display: grid; background: var(--bg); border-radius: 8px; }
+.qinput #q { position: relative; background: transparent; }
+.qmirror { position: absolute; inset: 0; box-sizing: border-box; background: none; border-color: transparent; color: transparent; white-space: pre; overflow: hidden; pointer-events: none; }
+.qmirror .mark { text-decoration: underline 2px; text-underline-offset: 4px; text-decoration-color: var(--semantic); }
+.qmirror .mark.task { text-decoration-color: var(--llm); }
+.qmirror .mark.neg { text-decoration-color: var(--neg); }
+.qmirror .mark.genre, .qmirror .mark.runtime, .qmirror .mark.year, .qmirror .mark.rating, .qmirror .mark.user { text-decoration-color: var(--local); }
+
+.pipeline { list-style: none; margin: 0; padding: 0; display: flex; gap: 6px; }
+.pipeline li { flex: 1 1 0; min-width: 0; display: grid; gap: 2px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; color: var(--muted); }
+.pipeline .pipeline-ms { font-family: var(--f-mono); font-size: 11px; font-variant-numeric: tabular-nums; }
+.pipeline li.ran { border-color: transparent; font-weight: 600; }
+.pipeline li.rules.ran { background: var(--local-bg); color: var(--local); }
+.pipeline li.search.ran { background: var(--semantic-bg); color: var(--semantic); }
+.pipeline li.assistant.ran { background: var(--llm-bg); color: var(--llm); }
+
+.score { grid-column: 1 / -1; display: flex; height: 5px; border-radius: 3px; overflow: hidden; background: var(--line); }
+.score-meaning { background: var(--semantic); }
+.score-bonus { background: var(--local); }
+
+.timeline { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 4px; font-size: 12px; }
+.timeline li { display: grid; grid-template-columns: minmax(70px, 110px) minmax(40px, 1fr) auto; gap: 8px; align-items: center; color: var(--muted); }
+.timeline-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timeline-track { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.timeline-bar { display: block; height: 100%; }
+.timeline li.model .timeline-bar { background: var(--llm); }
+.timeline li.tool .timeline-bar { background: var(--semantic); }
+.timeline-value { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+
+.cost-meter { display: grid; gap: 4px; font-size: 12px; margin-bottom: 12px; }
+.cost-row { display: flex; justify-content: space-between; gap: 8px; }
+.cost-track { display: block; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.cost-bar { display: block; height: 100%; background: var(--llm); }

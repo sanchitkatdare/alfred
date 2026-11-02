@@ -28,6 +28,39 @@ export interface DevEntry {
   items: DevItem[];
 }
 
+const DAILY_KEY = "alfred.neurons";
+
+/** Adds to today's count. Workers AI limits reset at 00:00 UTC, so a new UTC day starts at zero. */
+export function addDaily(stored: string | null, today: string, neurons: number): { day: string; neurons: number } {
+  let previous = 0;
+  try {
+    const value = JSON.parse(stored ?? "null") as { day?: string; neurons?: number } | null;
+    if (value?.day === today && typeof value.neurons === "number") previous = value.neurons;
+  } catch {
+    // Damaged value: start again.
+  }
+  return { day: today, neurons: previous + neurons };
+}
+
+const utcDay = () => new Date().toISOString().slice(0, 10);
+
+/** Estimate of today's neurons in this browser. The account limit also counts other browsers. */
+export function readDailyNeurons(): number {
+  try {
+    return addDaily(localStorage.getItem(DAILY_KEY), utcDay(), 0).neurons;
+  } catch {
+    return 0;
+  }
+}
+
+function recordDailyNeurons(neurons: number): void {
+  try {
+    localStorage.setItem(DAILY_KEY, JSON.stringify(addDaily(localStorage.getItem(DAILY_KEY), utcDay(), neurons)));
+  } catch {
+    // Storage blocked: the meter stays at zero.
+  }
+}
+
 const MAX_ENTRIES = 10;
 let nextId = 1;
 
@@ -41,6 +74,7 @@ export function useDevLog() {
   }, []);
   const add = useCallback((id: number | null, item: DevItem) => {
     if (id === null) return;
+    if (item.neurons) recordDailyNeurons(item.neurons);
     setEntries((all) => all.map((e) => (e.id === id ? { ...e, items: [...e.items, item] } : e)));
   }, []);
   const finish = useCallback((id: number) => {

@@ -1,7 +1,7 @@
 import type { AgentResult, ChatMessage } from "@alfred/agent-harness";
 import { useRef, useState, type RefObject } from "react";
 import { friendlyError } from "./api";
-import { describeEvent, type Turn } from "./AssistantPanel";
+import { describeEvent, timelineItem, type Turn } from "./AssistantPanel";
 import { isTimeout, QUESTION_LIMIT_MS, timeoutMessage, type AskOptions } from "./assistant";
 import { devItemFor, type DevLog } from "./devlog";
 import type { SearchHints } from "./hints";
@@ -18,8 +18,10 @@ export function useAssistantConversation(ask: (question: string, options: AskOpt
     if (!question) return;
     const turnIndex = turns.length;
     const update = (change: (t: Turn) => Turn) => setTurns((all) => all.map((t, i) => (i === turnIndex ? change(t) : t)));
-    const waitNote = tier === "oracle" ? [{ kind: "think" as const, text: `Oracle can take up to ${QUESTION_LIMIT_MS.oracle / 1000} s. Stop ends it early.` }] : [];
-    setTurns((all) => [...all, { question, steps: waitNote, status: "running" }]);
+    const note = tier === "oracle" ? `Oracle can take up to ${QUESTION_LIMIT_MS.oracle / 1000} s. Stop ends it early.` : undefined;
+    setTurns((all) => [...all, { question, note, timeline: [], steps: [], status: "running" }]);
+    const toolStarts = new Map<string, { name: string; at: number }>();
+    let lastEventAt = performance.now();
     let found: { title: string; year: number }[] = [];
     abort.current = new AbortController();
     const entry = dev.start("assistant", question);
@@ -34,12 +36,21 @@ export function useAssistantConversation(ask: (question: string, options: AskOpt
         onEvent: (e) => {
           const movies = e.type === "tool_result" ? (e.result as { movies?: { title: string; year: number }[] }).movies : undefined;
           if (movies?.length) found = movies;
+          lastEventAt = performance.now();
+          const item = timelineItem(e, lastEventAt, toolStarts);
+          if (item) update((t) => ({ ...t, timeline: [...t.timeline, item] }));
           const step = describeEvent(e);
           if (step) update((t) => ({ ...t, steps: [...t.steps, step] }));
-          const item = devItemFor(e);
-          if (item) dev.add(entry, item);
+          const devItem = devItemFor(e);
+          if (devItem) dev.add(entry, devItem);
         },
       });
+      if (result.status === "failed" || result.status === "timed_out") {
+        // A model call that fails reports no event, but it did run and it took this long.
+        const ms = Math.round(performance.now() - lastEventAt);
+        update((t) => ({ ...t, timeline: [...t.timeline, { kind: "model", label: "Stopped", ms }] }));
+        dev.add(entry, { stage: "assistant", label: "Stopped", detail: result.error ?? "time limit", ms, serverCall: true });
+      }
       if (result.status === "done") {
         history.current = result.transcript.filter((m) => m.role !== "system");
         update((t) => ({ ...t, status: "done", answer: result.message?.content || "(no answer)" }));

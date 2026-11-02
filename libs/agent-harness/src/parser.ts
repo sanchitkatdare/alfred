@@ -25,6 +25,10 @@ export interface ParseResult {
   trace: string[];
   /** Autocomplete for a partial name at the end of the query. */
   suggestion: { from: string; to: string } | null;
+  /** The query as tokens, in order. */
+  tokens: string[];
+  /** Which tokens produced which chip: token positions `from` up to `to`, and the chip's `sig`. */
+  marks: { from: number; to: number; sig: string }[];
 }
 
 export interface RuleContext {
@@ -167,6 +171,14 @@ export function parse(text: string, config: ParserConfig): ParseResult {
   const rules = config.rules ?? [];
 
   const chips: Chip[] = [];
+  const marks: ParseResult["marks"] = [];
+  const addChip = (input: ChipInput, from: number, to: number) => {
+    const chip = toChip(input);
+    chips.push(chip);
+    let end = to;
+    while (end > from + 1 && !keyAt(end - 1)) end--; // a trailing comma is not part of the chip
+    marks.push({ from, to: end, sig: chip.sig });
+  };
   const leftover: string[] = [];
   const trace: string[] = [];
   let suggestion: ParseResult["suggestion"] = null;
@@ -189,7 +201,7 @@ export function parse(text: string, config: ParserConfig): ParseResult {
 
     const phrase = phrases.find((p) => matches(i, p.phrase));
     if (phrase) {
-      chips.push(toChip(phrase.chip));
+      addChip(phrase.chip, i, i + phrase.phrase.length);
       trace.push(`${quote(i, i + phrase.phrase.length)} → ${phrase.chip.kind}: ${phrase.chip.label}`);
       i += phrase.phrase.length;
       clearNeg();
@@ -217,7 +229,7 @@ export function parse(text: string, config: ParserConfig): ParseResult {
         leftover.push(...consumed.filter((t) => !stop.has(toKey(t))));
         trace.push(`Exclusion did not apply: ${quote(i, i + consumed.length)} cannot be excluded, so it stays free text`);
       } else {
-        for (const c of ruleHit.chips ?? []) chips.push(toChip(c));
+        for (const c of ruleHit.chips ?? []) addChip(c, i, i + consumed.length);
         trace.push(ruleHit.trace);
       }
       i += Math.max(1, ruleHit.consumed);
@@ -252,8 +264,8 @@ export function parse(text: string, config: ParserConfig): ParseResult {
     }
     if (entry) {
       const negate = neg || prefixNeg;
-      chips.push(
-        toChip({
+      addChip(
+        {
           kind: entry.kind,
           id: entry.id,
           label: entry.label,
@@ -261,7 +273,9 @@ export function parse(text: string, config: ParserConfig): ParseResult {
           fuzzy,
           ambiguous: entry.ambiguous ?? false,
           alts: entry.alts ?? [],
-        }),
+        },
+        i,
+        i + used,
       );
       const how = [entry.kind, entry.via !== "name" ? entry.via : "", fuzzy ? "typo tolerance" : ""].filter(Boolean).join(", ");
       const also = entry.alts?.length ? `. ${entry.ambiguous ? "Ambiguous, also" : "Also"}: ${entry.alts.join(", ")}` : "";
@@ -305,5 +319,5 @@ export function parse(text: string, config: ParserConfig): ParseResult {
 
   const seen = new Set<string>();
   const unique = chips.filter((c) => !seen.has(c.sig) && seen.add(c.sig));
-  return { chips: unique, leftover, trace, suggestion };
+  return { chips: unique, leftover, trace, suggestion, tokens, marks };
 }

@@ -13,6 +13,8 @@ import { aboutAnswer, answerFromCatalog, buildTitleIndex, describeLookup, detect
 import { chipsToSearchHints } from "./hints";
 import { byRating, filterCatalog } from "./tools";
 import { useWatched } from "./useWatched";
+import { wordSegments } from "./highlight";
+import { pipelineStages } from "./pipeline";
 import { ResultsPanel } from "./ResultsPanel";
 import { decideAppRoute, type AppRoute } from "./routing";
 import { useAssistantConversation } from "./useAssistantConversation";
@@ -61,6 +63,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
   const [removed, setRemoved] = useState<ReadonlySet<string>>(new Set());
   const { watched, getWatched, markWatched, unmark, clear } = useWatched();
   const inputRef = useRef<HTMLInputElement>(null);
+  const mirrorRef = useRef<HTMLDivElement>(null);
   const seenSigs = useRef<Set<string>>(new Set());
   const byId = useMemo(() => new Map(catalog.map((m) => [m.id, m])), [catalog]);
   const titleIndex = useMemo(() => buildTitleIndex(catalog), [catalog]);
@@ -250,9 +253,25 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
         <form className="qbox" onSubmit={onSubmit}>
           <label htmlFor="q">Ask for a movie</label>
           <div className="qrow">
-            <input id="q" ref={inputRef} type="text" autoComplete="off" spellCheck={false} maxLength={MAX_QUERY_CHARS} value={query} onChange={(e) => setText(e.target.value)} />
+            <div className="qinput">
+              <div ref={mirrorRef} className="qmirror" aria-hidden="true">
+                {wordSegments(query, parsed).map((seg, i) => {
+                  const chip = seg.sig ? chips.find((c) => c.sig === seg.sig) : undefined;
+                  return <span key={i} className={chip ? `mark ${chip.negate ? "neg" : chip.kind}` : undefined}>{seg.text}</span>;
+                })}
+              </div>
+              <input id="q" ref={inputRef} type="text" autoComplete="off" spellCheck={false} maxLength={MAX_QUERY_CHARS} value={query} onChange={(e) => setText(e.target.value)} onScroll={(e) => { if (mirrorRef.current) mirrorRef.current.scrollLeft = e.currentTarget.scrollLeft; }} />
+            </div>
             <button type="submit" className="btn" disabled={busy || decision.route === "empty"}>{busy ? "Working…" : "Search"}</button>
           </div>
+          <ol className="pipeline" aria-label="Stages used">
+            {pipelineStages(dev.entries.find((e) => e.kind !== "load" && e.title.trim() === query.trim()) ?? null, parseMs).map((stage) => (
+              <li key={stage.id} className={`${stage.id}${stage.ran ? " ran" : ""}`}>
+                <span>{stage.label}</span>
+                <span className="pipeline-ms">{stage.ran ? stage.time : "not used"}</span>
+              </li>
+            ))}
+          </ol>
           {query.length >= MAX_QUERY_CHARS - 50 && <span className="note counter">{query.length}/{MAX_QUERY_CHARS} characters</span>}
           <div className="examples">
             <span className="eyebrow">Examples</span>
@@ -270,7 +289,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
         )}
         {lookup && !lookupText && <p className="note">Press Enter to show the story. No AI involved.</p>}
 
-        <AssistantPanel turns={turns} running={running} onStop={stop} onReset={resetConversation} />
+        <AssistantPanel turns={turns} running={running} devMode={devMode} onStop={stop} onReset={resetConversation} />
 
         <div className="grid">
           <ResultsPanel
@@ -289,20 +308,13 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
             onUnmark={unmark}
             onClear={clear}
           />
-
-          <div className="panel">
-            <h2>Parser trace</h2>
-            <ul className="trace">
-              {parsed.trace.length ? parsed.trace.map((t, i) => <li key={i}>{t}</li>) : <li>Nothing parsed yet.</li>}
-            </ul>
-          </div>
         </div>
       </section>
 
       </div>
       {devMode && (
         <DevPanel
-          live={{ parseMs, route: { ...route, kind: decision.route }, reason: decision.reason, hints: chipsToSearchHints(chips) }}
+          live={{ parseMs, route: { ...route, kind: decision.route }, reason: decision.reason, hints: chipsToSearchHints(chips), trace: parsed.trace }}
           entries={dev.entries}
         />
       )}

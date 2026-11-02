@@ -78,6 +78,15 @@ describe("dictionary matching", () => {
   });
 });
 
+describe("marks", () => {
+  it("links each chip to its tokens", () => {
+    const r = parse("crime without al pacino dreams", config);
+    expect(r.tokens).toEqual(["crime", "without", "al", "pacino", "dreams"]);
+    expect(r.marks.map(({ from, to }) => [from, to])).toEqual([[0, 1], [2, 4]]);
+    expect(r.marks.map((m) => m.sig)).toEqual(r.chips.map((c) => c.sig));
+  });
+});
+
 describe("negation", () => {
   it.each([
     ["not scary", ["!genre:horror"]],

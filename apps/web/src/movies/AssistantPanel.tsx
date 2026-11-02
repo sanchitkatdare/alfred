@@ -6,8 +6,36 @@ export interface Step {
   text: string;
 }
 
+/** One model or tool call in the timeline. */
+export interface TimelineItem {
+  kind: "model" | "tool";
+  label: string;
+  ms: number;
+  neurons?: number;
+}
+
+/** Turns harness events into timeline items. `starts` holds tool start times between calls. */
+export function timelineItem(event: AgentEvent, now: number, starts: Map<string, { name: string; at: number }>): TimelineItem | null {
+  switch (event.type) {
+    case "llm_response":
+      return { kind: "model", label: `Model ${event.iteration}`, ms: event.ms, neurons: event.usage?.neurons };
+    case "tool_call":
+      starts.set(event.call.id, { name: event.call.name, at: now });
+      return null;
+    case "tool_result": {
+      const start = starts.get(event.callId);
+      return start ? { kind: "tool", label: start.name, ms: Math.round(now - start.at) } : null;
+    }
+    default:
+      return null;
+  }
+}
+
 export interface Turn {
   question: string;
+  /** Shown from the start of the turn, for example how long Oracle can take. */
+  note?: string;
+  timeline: TimelineItem[];
   steps: Step[];
   status: "running" | "done" | "failed";
   answer?: string;
@@ -46,7 +74,23 @@ export function describeEvent(event: AgentEvent): Step | null {
 /** The model writes light Markdown; show it as plain text. */
 const plain = (text: string) => text.replace(/\*\*(.+?)\*\*/g, "$1").replace(/^#+\s*/gm, "");
 
-export function AssistantPanel({ turns, running, onStop, onReset }: { turns: Turn[]; running: boolean; onStop(): void; onReset(): void }) {
+function Timeline({ items }: { items: TimelineItem[] }) {
+  if (!items.length) return null;
+  const max = Math.max(1, ...items.map((i) => i.ms));
+  return (
+    <ol className="timeline">
+      {items.map((item, i) => (
+        <li key={i} className={item.kind}>
+          <span className="timeline-label">{item.label}</span>
+          <span className="timeline-track"><span className="timeline-bar" style={{ width: `${(item.ms / max) * 100}%` }} /></span>
+          <span className="timeline-value">{item.ms} ms{item.neurons !== undefined ? ` · ${item.neurons.toFixed(1)} neurons` : ""}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+export function AssistantPanel({ turns, running, devMode, onStop, onReset }: { turns: Turn[]; running: boolean; devMode: boolean; onStop(): void; onReset(): void }) {
   if (!turns.length) return null;
   return (
     <section className="assistant" aria-label="Assistant" aria-live="polite">
@@ -60,8 +104,10 @@ export function AssistantPanel({ turns, running, onStop, onReset }: { turns: Tur
       {turns.map((t, i) => (
         <div key={i} className="turn">
           <p className="question">{t.question}</p>
+          {t.note && <p className="note">{t.note}</p>}
+          <Timeline items={t.timeline} />
           <ol className="steps">
-            {t.steps.map((s, j) => <li key={j} className={`step ${s.kind}`}>{s.text}</li>)}
+            {t.steps.filter((s) => devMode || s.kind === "error").map((s, j) => <li key={j} className={`step ${s.kind}`}>{s.text}</li>)}
             {t.status === "running" && <li className="step think">Working…</li>}
           </ol>
           {t.answer && <p className="answer">{plain(t.answer)}</p>}

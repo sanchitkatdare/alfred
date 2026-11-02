@@ -1,6 +1,17 @@
 import type { Movie } from "./catalog";
 import type { SemanticResult } from "./useSemanticSearch";
 
+/** Stacked bar: meaning plus popularity bonus, scaled to the top result. */
+function ScoreBar({ score, max }: { score: { similarity: number; bonus: number }; max: number }) {
+  const percent = (n: number) => `${(Math.max(0, n) / max) * 100}%`;
+  return (
+    <span className="score" role="img" aria-label={`Meaning ${score.similarity.toFixed(2)}, popularity bonus ${score.bonus.toFixed(2)}`} title={`Meaning ${score.similarity.toFixed(2)} + popularity ${score.bonus.toFixed(2)}`}>
+      <span className="score-meaning" style={{ width: percent(score.similarity) }} />
+      <span className="score-bonus" style={{ width: percent(score.bonus) }} />
+    </span>
+  );
+}
+
 const formatRuntime = (min: number) => `${Math.floor(min / 60)}h${min % 60 ? ` ${min % 60}m` : ""}`;
 
 interface ResultsPanelProps {
@@ -22,6 +33,8 @@ interface ResultsPanelProps {
 }
 
 export function ResultsPanel({ semantic, matchCount, catalogSize, movies, synopses, busy, searchError, hiddenWatched, watchedMovies, onOracle, onDismissError, onMark, onUnmark, onClear }: ResultsPanelProps) {
+  const scores = semantic?.scores;
+  const maxScore = Math.max(0.01, ...Object.values(scores ?? {}).map((s) => s.similarity + s.bonus));
   return (
     <div className="panel">
       <div className="panel-head">
@@ -43,6 +56,7 @@ export function ResultsPanel({ semantic, matchCount, catalogSize, movies, synops
             <span className="t">{movie.title}</span>
             <button type="button" className="w" onClick={() => onMark(movie.id)}>Mark watched</button>
             <span className="m">{movie.year} · {formatRuntime(movie.runtime)} · ★ {movie.rating.toFixed(1)} · {movie.genres.join(", ")}</span>
+            {scores?.[movie.id] && <ScoreBar score={scores[movie.id]!} max={maxScore} />}
             {synopses[movie.id] && <span className="syn">{synopses[movie.id]}</span>}
           </li>
         ))}

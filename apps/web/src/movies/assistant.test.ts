@@ -1,6 +1,8 @@
 import { createScriptedProvider, say, toolCalls } from "@alfred/agent-harness/testing";
 import { describe, expect, it } from "vitest";
 import { createMovieAssistant, isTimeout, MAX_TOOL_RESULT_CHARS, MODEL_TOO_SLOW, timeoutMessage } from "./assistant";
+import { timelineItem } from "./AssistantPanel";
+import { addDaily } from "./devlog";
 import { SAMPLE_CATALOG } from "./sample-catalog.fixture";
 
 const context = {
@@ -9,6 +11,28 @@ const context = {
   search: async () => [],
   details: async (ids: number[]) => ids.map((id) => ({ id, overview: "x".repeat(2_000), tagline: "", keywords: "" })),
 };
+
+describe("timelineItem", () => {
+  it("measures a tool from its call to its result", () => {
+    const starts = new Map();
+    const call = { id: "c1", name: "search_movies", arguments: {} };
+    expect(timelineItem({ type: "tool_call", call }, 100, starts)).toBeNull();
+    expect(timelineItem({ type: "tool_result", callId: "c1", result: {}, cached: false, chars: 1, truncated: false }, 130, starts)).toEqual({ kind: "tool", label: "search_movies", ms: 30 });
+  });
+
+  it("reports a model call with its neurons", () => {
+    expect(timelineItem({ type: "llm_response", iteration: 2, ms: 900, usage: { inputTokens: 1, outputTokens: 1, neurons: 3 }, toolCalls: 0 }, 0, new Map())).toEqual({ kind: "model", label: "Model 2", ms: 900, neurons: 3 });
+  });
+});
+
+describe("addDaily", () => {
+  it("adds within a day and restarts on a new day", () => {
+    const stored = JSON.stringify({ day: "2026-11-01", neurons: 5 });
+    expect(addDaily(stored, "2026-11-01", 2).neurons).toBe(7);
+    expect(addDaily(stored, "2026-11-02", 2).neurons).toBe(2);
+    expect(addDaily("not json", "2026-11-01", 2).neurons).toBe(2);
+  });
+});
 
 describe("movie assistant", () => {
   it("applies parser hints to the model's search", async () => {

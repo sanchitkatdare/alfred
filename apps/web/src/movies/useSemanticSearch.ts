@@ -11,6 +11,8 @@ export interface SemanticResult {
   /** The query and active filters these results belong to. */
   key: string;
   movies: Movie[];
+  /** Meaning score and popularity bonus per movie id. */
+  scores: Record<number, { similarity: number; bonus: number }>;
   ms: number;
 }
 
@@ -63,7 +65,7 @@ export function useSemanticSearch({ catalog, byId, watched, dev, currentEntry, e
           return `${byId.get(r.id)?.title} ${p.similarity.toFixed(2)}+${p.bonus.toFixed(2)}`;
         }).join(" · "),
       });
-      setSemantic({ key: searchKey(query, chips), movies: ranked.map((r) => byId.get(r.id)!), ms: Math.round(performance.now() - started) });
+      setSemantic({ key: searchKey(query, chips), movies: ranked.map((r) => byId.get(r.id)!), scores: Object.fromEntries(ranked.map((r) => [r.id, scoreParts(index, r.id, r.score)])), ms: Math.round(performance.now() - started) });
     } catch (e) {
       setSearchError(friendlyError(e));
       dev.add(entry, { stage: "search", label: "Error", detail: friendlyError(e) });
