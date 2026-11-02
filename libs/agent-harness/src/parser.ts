@@ -73,7 +73,7 @@ export const DEFAULT_STOP_WORDS = (
 
 export const DEFAULT_NEGATION_WORDS = [
   "not", "no", "without", "except", "excluding", "exclude", "nothing", "minus", "avoid", "skip",
-  "hate", "hates", "dislike", "dislikes", "dont", "doesnt", "isnt", "arent",
+  "hate", "hates", "dislike", "dislikes", "dont", "doesnt", "isnt", "arent", "wont", "never",
 ];
 
 export const DEFAULT_NEGATION_PHRASES = [
@@ -131,6 +131,13 @@ function* nearbyKeys(index: Map<string, [string, DictEntry][]>, word: string, ma
 }
 
 /** Find a dictionary entry with typo tolerance: edit distance 2 for two-word names, 1 for single words. */
+/** "old man" must not match the surname Oldman: several words match a surname only if it has those words ("de niro"). */
+function spansName(entry: DictEntry, words: string[]): boolean {
+  if (entry.via !== "surname" || words.length === 1) return true;
+  const nameWords = entry.label.split(" ").slice(-words.length).map(toKey);
+  return words.every((w, i) => w === nameWords[i]);
+}
+
 function fuzzyLookup(dict: Dictionary, single: string, pair: string | null): { entry: DictEntry; used: number } | null {
   const index = fuzzyIndex(dict);
   if (pair && pair.length >= 9) {
@@ -153,8 +160,9 @@ function fuzzyLookup(dict: Dictionary, single: string, pair: string | null): { e
  * typo-tolerant dictionary, connectors, stop words, first-name suggestion, leftover.
  *
  * Negation scope: a negation word applies to the next dictionary entity. It continues through
- * "or", "nor" and commas ("not sci-fi or horror"). Any other word ends it. A rule match right after
- * a negation word stays free text, because rules have no opposite filter.
+ * "or", "nor" and commas ("not sci-fi or horror"). A rule match right after a negation word stays
+ * free text, because rules have no opposite filter. After an unknown word ("not too scary") the
+ * parser cannot tell what the negation covers, so later terms stay free text until a comma or "but".
  */
 export function parse(text: string, config: ParserConfig): ParseResult {
   const tokens = tokenize(text);
@@ -184,6 +192,7 @@ export function parse(text: string, config: ParserConfig): ParseResult {
   let suggestion: ParseResult["suggestion"] = null;
   let neg = false;
   let negHit = false;
+  let negLost = false;
   const clearNeg = () => {
     neg = false;
     negHit = false;
@@ -194,6 +203,7 @@ export function parse(text: string, config: ParserConfig): ParseResult {
   while (i < tokens.length) {
     const k = keyAt(i);
     const raw = tokens[i]!;
+    if (!k || k === "but") negLost = false;
     if (!k) {
       i++;
       continue;
@@ -212,6 +222,7 @@ export function parse(text: string, config: ParserConfig): ParseResult {
     if (negLen) {
       neg = true;
       negHit = false;
+      negLost = false;
       trace.push(`${quote(i, i + negLen)} starts an exclusion`);
       i += negLen;
       continue;
@@ -224,7 +235,7 @@ export function parse(text: string, config: ParserConfig): ParseResult {
     }
     if (ruleHit) {
       const consumed = tokens.slice(i, i + Math.max(1, ruleHit.consumed));
-      if (neg && !negHit && ruleHit.chips?.length) {
+      if (((neg && !negHit) || negLost) && ruleHit.chips?.length) {
         // A rule's filter cannot be inverted. Applying it would give the opposite of what was asked.
         leftover.push(...consumed.filter((t) => !stop.has(toKey(t))));
         trace.push(`Exclusion did not apply: ${quote(i, i + consumed.length)} cannot be excluded, so it stays free text`);
@@ -248,19 +259,27 @@ export function parse(text: string, config: ParserConfig): ParseResult {
       prefixNeg = true;
     }
     for (let n = Math.min(4, tokens.length - i); n >= 1 && !entry; n--) {
+      if (n === 1 && stop.has(k)) continue;
       const e = dict.entries.get(keys.slice(i, i + n).join(""));
-      if (e) {
+      if (e && spansName(e, keys.slice(i, i + n))) {
         entry = e;
         used = n;
       }
     }
-    if (!entry) {
-      const hit = fuzzyLookup(dict, k, i + 1 < tokens.length ? k + keyAt(i + 1) : null);
+    if (!entry && !stop.has(k)) {
+      // A first name or common word alone is not a typo, but "gary oldmen" can still match as a pair.
+      const hit = fuzzyLookup(dict, dict.firstNames.has(k) || dict.commonWords.has(k) ? "" : k, i + 1 < tokens.length ? k + keyAt(i + 1) : null);
       if (hit) {
         entry = hit.entry;
         used = hit.used;
         fuzzy = true;
       }
+    }
+    if (entry && negLost) {
+      leftover.push(...tokens.slice(i, i + used));
+      trace.push(`Exclusion did not apply: ${quote(i, i + used)} stays free text, because the words before it are not known`);
+      i += used;
+      continue;
     }
     if (entry) {
       const negate = neg || prefixNeg;
@@ -311,6 +330,7 @@ export function parse(text: string, config: ParserConfig): ParseResult {
     if (neg) {
       trace.push(`Exclusion did not apply: "${raw}" is not a known term`);
       clearNeg();
+      negLost = true;
     }
     i++;
   }

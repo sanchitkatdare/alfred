@@ -40,7 +40,11 @@ const GENRES: { id: string; label: string; aliases: string[] }[] = [
 export const GENRE_IDS = GENRES.map((g) => g.id);
 
 /** Surnames that are also English words. They match only as part of a full name. */
-const COMMON_WORDS = ["stone", "hill", "king", "wood", "young", "hunt", "bell", "fox", "day", "hardy", "grant", "blunt", "bale", "page", "moss", "ledger", "foster", "wright"];
+const COMMON_WORDS = [
+  "stone", "hill", "king", "wood", "young", "hunt", "bell", "fox", "day", "hardy", "grant", "blunt", "bale", "page", "moss", "ledger", "foster", "wright",
+  // Frequent words in catalog synopses that also matched a person (2026-11-01).
+  "alien", "newly", "younger", "prince", "german", "william", "able", "farmer", "covert", "common", "daily", "rose", "bent", "ireland", "price", "warden", "banks", "baker", "walker", "petty", "winner", "non", "eve", "lisa",
+];
 
 const STOP_WORDS = [...DEFAULT_STOP_WORDS, "movie", "movies", "film", "films", "flick", "flicks", "watch", "tonight", "recommend", "suggest", "directed", "director", "star", "stars"];
 
@@ -158,6 +162,8 @@ const comparisonRule: Rule = {
     if (!unit && (HOURS.has(next) || MINUTES.has(next))) {
       unit = next;
       j++;
+    } else if (!unit && STARS.has(next) && isMax) {
+      return { consumed: j + 2 - i, trace: `${quote(ctx, i, j + 2)}: there is no filter for a maximum rating, so this is ignored.` };
     } else if (!unit && STARS.has(next)) {
       return { consumed: j + 2 - i, chips: [ratingChip(num.n)], trace: `${quote(ctx, i, j + 2)} → rating ≥ ${num.n}` };
     }

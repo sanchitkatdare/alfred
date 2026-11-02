@@ -78,6 +78,51 @@ describe("dictionary matching", () => {
   });
 });
 
+describe("negation with unknown words", () => {
+  it.each(["not too scary", "no gore or horror", "isn't too violent or scary", "no more horror"])("gives no filter: %s", (q) => {
+    const r = parse(q, config);
+    expect(r.chips).toEqual([]);
+    expect(r.leftover.length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ["never scary", ["!genre:horror"]],
+    ["won't scare", ["!genre:horror"]],
+    ["not too scary but comedy", ["genre:comedy"]],
+  ])("%s", (q, expected) => {
+    expect(chipsOf(q)).toEqual(expected);
+  });
+});
+
+describe("names and ordinary words", () => {
+  const dict = buildDictionary({
+    people: [
+      { kind: "actor", name: "Gary Oldman", count: 9 },
+      { kind: "actor", name: "Robert De Niro", count: 9 },
+      { kind: "actor", name: "Prince", count: 2 },
+      { kind: "actor", name: "Vincent Price", count: 2 },
+      { kind: "actor", name: "LL Cool J", count: 2 },
+    ],
+    commonWords: ["prince", "price", "alien", "gary"],
+    minSurnameCount: 2,
+  });
+  const people = (q: string) => parse(q, { dictionary: dict, stopWords: DEFAULT_STOP_WORDS }).chips.map((c) => c.label);
+
+  it.each(["an old man and his dog", "a prince", "the price of fame", "agent j", "an alien"])("does not match a person: %s", (q) => {
+    expect(people(q)).toEqual([]);
+  });
+
+  it.each([
+    ["oldman", "Gary Oldman"],
+    ["de niro", "Robert De Niro"],
+    ["deniro", "Robert De Niro"],
+    ["vincent price", "Vincent Price"],
+    ["gary oldmen", "Gary Oldman"],
+  ])("still matches: %s", (q, expected) => {
+    expect(people(q)).toEqual([expected]);
+  });
+});
+
 describe("marks", () => {
   it("links each chip to its tokens", () => {
     const r = parse("crime without al pacino dreams", config);

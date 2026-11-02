@@ -11,6 +11,18 @@ const filtered = (q: string, watched = new Set<number>()) => filterCatalog(SAMPL
 const titlesOf = (q: string) => filtered(q).map((m) => m.title);
 const routeOf = (q: string) => decideRoute(parse(q, config), MOVIE_ROUTER_OPTIONS).route;
 
+describe("a maximum rating", () => {
+  it.each(["below 7 stars", "under 5 stars", "less than 6 stars", "under 7 rating"])("gives no filter, never the opposite: %s", (q) => {
+    const parsed = parse(q, config);
+    expect(parsed.chips).toEqual([]);
+    expect(parsed.trace.join(" ")).toContain("no filter for a maximum rating");
+  });
+
+  it("keeps a minimum rating", () => {
+    expect(chipsOf("over 7 stars")).toEqual(["rating:Rating ≥ 7"]);
+  });
+});
+
 describe("negated filters are not applied", () => {
   it.each(["not over 2 hours", "no 90s movies", "not highly rated", "no short movies", "not like inception", "not recent"])("%s", (q) => {
     const parsed = parse(q, config);

@@ -16,6 +16,7 @@ export interface Dictionary {
   /** First-name key -> full names, most frequent first. Used for autocomplete suggestions. */
   firstNames: Map<string, string[]>;
   /** Surname keys skipped because they are common words ("stone", "hill"). */
+  commonWords: ReadonlySet<string>;
   commonWordSurnames: Map<string, string[]>;
 }
 
@@ -37,7 +38,7 @@ export interface PersonSpec {
 export interface DictionaryOptions {
   terms?: TermSpec[];
   people?: PersonSpec[];
-  /** Surnames that are also common words. They match only as part of a full name. */
+  /** Words that are also names. A surname or one-word name in this list matches only as part of a full name, and typo matching leaves these words alone. */
   commonWords?: Iterable<string>;
   /** Minimum item count for a surname to match alone. Rare people match only by full name. */
   minSurnameCount?: number;
@@ -75,7 +76,10 @@ export function buildDictionary(options: DictionaryOptions): Dictionary {
   const people = [...(options.people ?? [])].sort((a, b) => b.count - a.count);
   const bySurname = new Map<string, PersonSpec[]>();
   for (const p of people) {
-    entries.set(toKey(p.name), { kind: p.kind, id: p.name, label: p.name, via: "name" });
+    const nameKey = toKey(p.name);
+    // One-word names like "Prince" or "J" are too easy to type by accident.
+    const tooCommon = !p.name.includes(" ") && (common.has(nameKey) || nameKey.length < 3);
+    if (!tooCommon) entries.set(nameKey, { kind: p.kind, id: p.name, label: p.name, via: "name" });
     const sk = toKey(surnameOf(p.name));
     bySurname.set(sk, [...(bySurname.get(sk) ?? []), p]);
     if (p.count >= minFirst) {
@@ -85,6 +89,7 @@ export function buildDictionary(options: DictionaryOptions): Dictionary {
   }
 
   for (const [sk, group] of bySurname) {
+    if (sk.length < 3) continue;
     if (common.has(sk)) {
       commonWordSurnames.set(sk, group.map((p) => p.name));
       continue;
@@ -103,5 +108,5 @@ export function buildDictionary(options: DictionaryOptions): Dictionary {
     });
   }
 
-  return { entries, firstNames, commonWordSurnames };
+  return { entries, firstNames, commonWordSurnames, commonWords: common };
 }
