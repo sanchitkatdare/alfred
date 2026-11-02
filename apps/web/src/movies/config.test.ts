@@ -40,6 +40,11 @@ describe("like a title with several movies", () => {
     expect(similarOf("like dune", dune.slice(0, 1))).toBe("1");
   });
 
+  it("does not read a stripped original title as a movie", () => {
+    const projectA = [{ ...heat, id: 5, title: "Project A", originalTitle: "A計劃", votes: 10 }];
+    expect(similarOf("something like a heist gone wrong", projectA)).toBeUndefined();
+  });
+
   it("reads a pronoun as a title only with more words", () => {
     const it2 = [{ ...heat, id: 3, title: "It Follows", votes: 10 }, { ...heat, id: 4, title: "It", votes: 10 }];
     expect(similarOf("like it follows", it2)).toBe("3");

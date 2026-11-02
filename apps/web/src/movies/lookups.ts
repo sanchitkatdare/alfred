@@ -53,6 +53,8 @@ export interface TitleIndex {
   byKey: Map<string, Movie[]>;
 }
 
+const isLatin = (title: string) => !/[^\p{ASCII}]/u.test(normalize(title));
+
 /**
  * Titles and original titles, with and without a leading "the", most voted first. The part before
  * a colon also matches, unless a movie has exactly that title ("Dune" stays Dune, not "Dune: Part Two").
@@ -63,6 +65,7 @@ export function buildTitleIndex(catalog: Movie[]): TitleIndex {
     for (const m of catalog) {
       for (const title of titlesOf(m)) {
         for (const k of [toKey(title), toKey(title.replace(/^the\s+/i, ""))]) {
+          if (!k) continue;
           if (!found.has(k)) found.set(k, new Set());
           found.get(k)!.add(m);
         }
@@ -70,7 +73,8 @@ export function buildTitleIndex(catalog: Movie[]): TitleIndex {
     }
     return found;
   };
-  const exact = collect((m) => (m.originalTitle ? [m.title, m.originalTitle] : [m.title]));
+  // An original title in another script loses those letters in its key ("A計劃" → "a"), so it cannot match.
+  const exact = collect((m) => (m.originalTitle && isLatin(m.originalTitle) ? [m.title, m.originalTitle] : [m.title]));
   const bases = collect((m) => (m.title.includes(":") ? [m.title.split(":")[0]!] : []));
   const byKey = new Map<string, Movie[]>();
   for (const [k, movies] of [...bases, ...exact]) byKey.set(k, [...movies].sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0)));
@@ -79,10 +83,12 @@ export function buildTitleIndex(catalog: Movie[]): TitleIndex {
 
 /** "the movie Inception (2010)" → Inception. A trailing year picks between remakes. */
 function resolveTitle(raw: string, index: TitleIndex): { movie: Movie; others: Movie[] } | null {
-  const yearMatch = raw.match(/\(?\b(19|20)\d{2}\)?$/);
+  const candidatesFor = (text: string) => index.byKey.get(toKey(text.replace(/^(?:the )?(?:movie|film) /, "").replace(/ (?:movie|film)$/, "").trim())) ?? [];
+  // The whole text first, so "Blade Runner 2049" and "1917" stay titles.
+  const whole = candidatesFor(raw);
+  const yearMatch = whole.length ? null : raw.match(/\(?\b(19|20)\d{2}\)?$/);
   const year = yearMatch ? Number(yearMatch[0].replace(/\D/g, "")) : null;
-  const title = (yearMatch ? raw.slice(0, yearMatch.index) : raw).replace(/^(?:the )?(?:movie|film) /, "").replace(/ (?:movie|film)$/, "").trim();
-  const candidates = index.byKey.get(toKey(title)) ?? [];
+  const candidates = yearMatch ? candidatesFor(raw.slice(0, yearMatch.index)) : whole;
   if (!candidates.length) return null;
   const movie = (year && candidates.find((m) => m.year === year)) || candidates[0]!;
   return { movie, others: candidates.filter((m) => m !== movie) };

@@ -16,7 +16,7 @@ import { useWatched } from "./useWatched";
 import { ResultsPanel } from "./ResultsPanel";
 import { decideAppRoute, type AppRoute } from "./routing";
 import { useAssistantConversation } from "./useAssistantConversation";
-import { useSemanticSearch } from "./useSemanticSearch";
+import { searchKey, useSemanticSearch } from "./useSemanticSearch";
 import { rankByVector, type VectorIndex } from "./vectors";
 
 const MAX_QUERY_CHARS = 300;
@@ -189,7 +189,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
   };
 
   const route = ROUTES[decision.route];
-  const showSemantic = semantic?.query === query;
+  const showSemantic = semantic?.key === searchKey(query, chips);
   const shown = showSemantic ? semantic!.movies.filter((m) => !watched.has(m.id)) : live.movies.slice(0, 10);
 
   return (

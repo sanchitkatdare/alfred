@@ -8,7 +8,8 @@ import { filterCatalog } from "./tools";
 import { blend, rankByVector, scoreParts, vectorOf, type VectorIndex } from "./vectors";
 
 export interface SemanticResult {
-  query: string;
+  /** The query and active filters these results belong to. */
+  key: string;
   movies: Movie[];
   ms: number;
 }
@@ -23,6 +24,9 @@ interface Options {
   embed(text: string): Promise<number[]>;
   getVectors(): Promise<VectorIndex>;
 }
+
+/** Results stay valid only for the same text and the same chips. Removing a chip makes them stale. */
+export const searchKey = (query: string, chips: Chip[]) => JSON.stringify([query, chips.map((c) => c.sig)]);
 
 /** Search by meaning: the server turns free text into a vector, and the browser ranks the filtered movies. */
 export function useSemanticSearch({ catalog, byId, watched, dev, currentEntry, embed, getVectors }: Options) {
@@ -59,7 +63,7 @@ export function useSemanticSearch({ catalog, byId, watched, dev, currentEntry, e
           return `${byId.get(r.id)?.title} ${p.similarity.toFixed(2)}+${p.bonus.toFixed(2)}`;
         }).join(" · "),
       });
-      setSemantic({ query, movies: ranked.map((r) => byId.get(r.id)!), ms: Math.round(performance.now() - started) });
+      setSemantic({ key: searchKey(query, chips), movies: ranked.map((r) => byId.get(r.id)!), ms: Math.round(performance.now() - started) });
     } catch (e) {
       setSearchError(friendlyError(e));
       dev.add(entry, { stage: "search", label: "Error", detail: friendlyError(e) });

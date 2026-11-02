@@ -9,6 +9,43 @@ const detect = (q: string) => {
   return l ? `${l.kind}:${l.movie?.title ?? ""}${l.movie ? ` ${l.movie.year}` : ""}` : null;
 };
 
+describe("titles that look like something else", () => {
+  const base = SAMPLE_CATALOG[0]!;
+  const movies = [
+    { ...base, id: 1, title: "Blade Runner", year: 1982, votes: 100 },
+    { ...base, id: 2, title: "Blade Runner 2049", year: 2017, votes: 50 },
+    { ...base, id: 3, title: "1917", year: 2019, votes: 50 },
+    { ...base, id: 4, title: "Heat", year: 1995, votes: 50 },
+    { ...base, id: 5, title: "Heat", year: 1986, votes: 5 },
+    { ...base, id: 6, title: "Spirited Away", originalTitle: "千と千尋の神隠し", year: 2001, votes: 50 },
+    { ...base, id: 7, title: "Project A", originalTitle: "A計劃", year: 1983, votes: 50 },
+    { ...base, id: 8, title: "Amelie", originalTitle: "Le Fabuleux Destin d'Amélie Poulain", year: 2001, votes: 50 },
+  ];
+  const titles = buildTitleIndex(movies);
+  const find = (q: string) => {
+    const l = detectLookup(q, titles);
+    return l?.movie ? `${l.movie.title} ${l.movie.year}` : null;
+  };
+
+  it.each([
+    ["who directed blade runner 2049", "Blade Runner 2049 2017"],
+    ["how long is 1917", "1917 2019"],
+    ["who directed blade runner", "Blade Runner 1982"],
+    ["who directed heat 1986", "Heat 1986"],
+    ["who directed le fabuleux destin d'amelie poulain", "Amelie 2001"],
+  ])("%s", (q, expected) => {
+    expect(find(q)).toBe(expected);
+  });
+
+  it.each(["who directed 千と千尋の神隠し", "who directed -", "how long is 2012", "who directed a"])("finds no movie: %s", (q) => {
+    expect(find(q)).toBeNull();
+  });
+
+  it("indexes no empty key", () => {
+    expect(titles.byKey.has("")).toBe(false);
+  });
+});
+
 describe("detectLookup", () => {
   it.each(["what is it about", "how long is it", "who directed them", "tell me about her", "who is in that one"])("does not read a pronoun as a title: %s", (q) => {
     expect(detect(q)).toBeNull();
