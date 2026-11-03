@@ -14,6 +14,11 @@ export interface AppRouteInput {
   ignoreFollowUp: boolean;
 }
 
+/** Enter starts over unless the text refers back to the conversation ("which of those"). */
+export function startsNewSearch(query: string, ignoreFollowUp: boolean): boolean {
+  return ignoreFollowUp || !isFollowUp(query);
+}
+
 /** Lookups first, because they need no LLM. Then follow-ups (routing rule A). Then the rule router. */
 export function decideAppRoute({ query, lookup, rules, inConversation, ignoreFollowUp }: AppRouteInput): { route: AppRoute; reason: string; followUp: boolean } {
   if (lookup) return { route: "lookup", reason: `Lookup: ${describeLookup(lookup)}`, followUp: false };

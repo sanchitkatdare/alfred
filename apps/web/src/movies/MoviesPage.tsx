@@ -16,7 +16,7 @@ import { useWatched } from "./useWatched";
 import { wordSegments } from "./highlight";
 import { pipelineStages } from "./pipeline";
 import { ResultsPanel } from "./ResultsPanel";
-import { decideAppRoute, type AppRoute } from "./routing";
+import { decideAppRoute, startsNewSearch, type AppRoute } from "./routing";
 import { useAssistantConversation } from "./useAssistantConversation";
 import { searchKey, useSemanticSearch } from "./useSemanticSearch";
 import { rankByVector, type VectorIndex } from "./vectors";
@@ -186,6 +186,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (busy) return;
+    if (startsNewSearch(query, ignoreFollowUp)) resetConversation();
     if (decision.route === "lookup" && lookup) void runLookup(lookup);
     else if (decision.route === "assistant") void askAssistant();
     else if (decision.route === "semantic") void runSearch({ query, chips, text: parsed.leftover.join(" ") }, logRules);

@@ -32,6 +32,7 @@ export function timelineItem(event: AgentEvent, now: number, starts: Map<string,
 }
 
 export interface Turn {
+  id: number;
   question: string;
   /** Shown from the start of the turn, for example how long Oracle can take. */
   note?: string;
@@ -101,8 +102,8 @@ export function AssistantPanel({ turns, running, devMode, onStop, onReset }: { t
           {!running && <button type="button" className="btn ghost" onClick={onReset}>New conversation</button>}
         </div>
       </div>
-      {turns.map((t, i) => (
-        <div key={i} className="turn">
+      {turns.map((t) => (
+        <div key={t.id} className="turn">
           <p className="question">{t.question}</p>
           {t.note && <p className="note">{t.note}</p>}
           <Timeline items={t.timeline} />

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideAppRoute, type AppRouteInput } from "./routing";
+import { decideAppRoute, startsNewSearch, type AppRouteInput } from "./routing";
 import { SAMPLE_CATALOG } from "./sample-catalog.fixture";
 
 const input = (change: Partial<AppRouteInput>): AppRouteInput => ({
@@ -9,6 +9,21 @@ const input = (change: Partial<AppRouteInput>): AppRouteInput => ({
   inConversation: true,
   ignoreFollowUp: false,
   ...change,
+});
+
+describe("startsNewSearch", () => {
+  it("starts over for unrelated text, also when it is a task", () => {
+    expect(startsNewSearch("dream heist", false)).toBe(true);
+    expect(startsNewSearch("plan a movie night", false)).toBe(true);
+  });
+
+  it("keeps the conversation when the text refers back", () => {
+    expect(startsNewSearch("compare those two", false)).toBe(false);
+  });
+
+  it("starts over when the follow-up chip was removed", () => {
+    expect(startsNewSearch("compare those two", true)).toBe(true);
+  });
 });
 
 describe("decideAppRoute", () => {

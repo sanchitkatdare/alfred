@@ -12,14 +12,15 @@ export function useAssistantConversation(ask: (question: string, options: AskOpt
   const running = turns.at(-1)?.status === "running";
   const history = useRef<ChatMessage[]>([]);
   const abort = useRef<AbortController | null>(null);
+  const nextTurnId = useRef(1);
 
   const runAssistant = async (query: string, hints: SearchHints, logRules: (entry: number) => void, tier: "default" | "oracle" = "default") => {
     const question = query.trim();
     if (!question) return;
-    const turnIndex = turns.length;
-    const update = (change: (t: Turn) => Turn) => setTurns((all) => all.map((t, i) => (i === turnIndex ? change(t) : t)));
+    const id = nextTurnId.current++;
+    const update = (change: (t: Turn) => Turn) => setTurns((all) => all.map((t) => (t.id === id ? change(t) : t)));
     const note = tier === "oracle" ? `Oracle can take up to ${QUESTION_LIMIT_MS.oracle / 1000} s. Stop ends it early.` : undefined;
-    setTurns((all) => [...all, { question, note, timeline: [], steps: [], status: "running" }]);
+    setTurns((all) => [...all, { id, question, note, timeline: [], steps: [], status: "running" }]);
     const toolStarts = new Map<string, { name: string; at: number }>();
     let lastEventAt = performance.now();
     let found: { title: string; year: number }[] = [];
