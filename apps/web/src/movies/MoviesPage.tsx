@@ -267,7 +267,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
           </div>
           <ol className="pipeline" aria-label="Stages used">
             {pipelineStages(dev.entries.find((e) => e.kind !== "load" && e.title.trim() === query.trim()) ?? null, parseMs).map((stage) => (
-              <li key={stage.id} className={`${stage.id}${stage.ran ? " ran" : ""}`}>
+              <li key={stage.id} className={`stage-${stage.id}${stage.ran ? " ran" : ""}`}>
                 <span>{stage.label}</span>
                 <span className="pipeline-ms">{stage.ran ? stage.time : "not used"}</span>
               </li>

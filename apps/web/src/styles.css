@@ -29,10 +29,20 @@ p { margin: 0; }
 .eyebrow { font-family: var(--f-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .note { font-size: 13px; color: var(--muted); }
 
-.page { max-width: 1080px; margin: 0 auto; padding-inline: 20px; padding-block: 32px 64px; display: grid; gap: 24px; }
+/* Mobile first: base rules are for phones; wider screens add columns. */
+.page { max-width: 1440px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 48px; display: grid; gap: 20px; }
+@media (min-width: 768px) { .page { padding-inline: 24px; padding-block: 32px 64px; gap: 24px; } }
 .head { display: grid; gap: 6px; }
 
-.sim { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; display: grid; gap: 16px; min-width: 0; }
+.sim { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 14px; min-width: 0; }
+@media (min-width: 768px) { .sim { padding: 20px; gap: 16px; } }
+/* Wide screens: the assistant and the results side by side, everything else full width. */
+@media (min-width: 1100px) {
+  .sim:has(> .assistant) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 20px; }
+  .sim > * { grid-column: 1 / -1; }
+  .sim:has(> .assistant) > .assistant { grid-column: 1; align-self: start; }
+  .sim:has(> .assistant) > .grid { grid-column: 2; }
+}
 .understood { display: grid; gap: 8px; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; min-height: 34px; align-items: center; }
 .placeholder { color: var(--muted); font-size: 13.5px; }
@@ -56,16 +66,19 @@ p { margin: 0; }
 #q, .qmirror { width: 100%; font: 400 1.05rem/1.4 var(--f-body); padding: 13px 14px; border: 1.5px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); }
 #q:focus { outline: none; border-color: var(--semantic); }
 .examples { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+/* Phones: one row that scrolls sideways inside itself, so the examples do not push the results down. */
+@media (max-width: 767px) { .examples { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; } .ex, .examples .eyebrow { flex: none; white-space: nowrap; } }
 .ex { border: 1px solid var(--line); background: transparent; border-radius: 6px; padding: 3px 9px; font-size: 13px; color: var(--muted); }
 .ex:hover { color: var(--fg); border-color: var(--muted); }
 
 .grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
-@media (max-width: 760px) { .grid { grid-template-columns: minmax(0, 1fr); } }
 .panel { display: grid; gap: 10px; align-content: start; min-width: 0; }
 .panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .panel-head-side { display: flex; justify-content: flex-end; align-items: baseline; gap: 4px 10px; flex-wrap: wrap; margin-left: auto; }
 
 .results { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+/* Results fill the width in columns of at least 380 px. */
+.results { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); column-gap: 28px; align-items: start; }
 .results li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 0; border-bottom: 1px solid var(--line); align-items: center; }
 .results .t { font-weight: 600; }
 .results .m { font-family: var(--f-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -86,8 +99,7 @@ p { margin: 0; }
 .trace li::before { content: "›"; position: absolute; left: 0; }
 
 /* Search form and assistant */
-.qrow { display: flex; gap: 8px; flex-wrap: wrap; }
-.qrow #q { flex: 1 1 260px; min-width: 0; }
+.qrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .btn { border: 1.5px solid var(--fg); background: var(--fg); color: var(--bg); border-radius: 8px; padding: 0 16px; min-height: 46px; font-weight: 600; }
 .btn.ghost { background: transparent; color: var(--fg); border-color: var(--line); }
 .btn:disabled { opacity: 0.55; cursor: progress; }
@@ -115,7 +127,7 @@ p { margin: 0; }
 .dev-toggle[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
 .layout { display: grid; gap: 24px; min-width: 0; }
 .main-col { display: grid; gap: 24px; min-width: 0; align-content: start; }
-.page.with-dev { max-width: 1520px; }
+.page.with-dev { max-width: 1760px; }
 @media (min-width: 1100px) { .page.with-dev .layout { grid-template-columns: minmax(0, 1fr) 400px; } }
 .dev { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 12px; align-content: start; min-width: 0; font-size: 13px; }
 @media (min-width: 1100px) { .dev { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; } }
@@ -149,7 +161,7 @@ p { margin: 0; }
 .watched li { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 
 /* Visuals (step 3.6) */
-.qinput { position: relative; flex: 1 1 240px; min-width: 0; display: grid; background: var(--bg); border-radius: 8px; }
+.qinput { position: relative; min-width: 0; display: grid; background: var(--bg); border-radius: 8px; }
 .qinput #q { position: relative; background: transparent; }
 .qmirror { position: absolute; inset: 0; box-sizing: border-box; background: none; border-color: transparent; color: transparent; white-space: pre; overflow: hidden; pointer-events: none; }
 .qmirror .mark { text-decoration: underline 2px; text-underline-offset: 4px; text-decoration-color: var(--semantic); }
@@ -161,9 +173,9 @@ p { margin: 0; }
 .pipeline li { flex: 1 1 0; min-width: 0; display: grid; gap: 2px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; color: var(--muted); }
 .pipeline .pipeline-ms { font-family: var(--f-mono); font-size: 11px; font-variant-numeric: tabular-nums; }
 .pipeline li.ran { border-color: transparent; font-weight: 600; }
-.pipeline li.rules.ran { background: var(--local-bg); color: var(--local); }
-.pipeline li.search.ran { background: var(--semantic-bg); color: var(--semantic); }
-.pipeline li.assistant.ran { background: var(--llm-bg); color: var(--llm); }
+.pipeline li.stage-rules.ran { background: var(--local-bg); color: var(--local); }
+.pipeline li.stage-search.ran { background: var(--semantic-bg); color: var(--semantic); }
+.pipeline li.stage-assistant.ran { background: var(--llm-bg); color: var(--llm); }
 
 .score { grid-column: 1 / -1; display: flex; height: 5px; border-radius: 3px; overflow: hidden; background: var(--line); }
 .score-meaning { background: var(--semantic); }
@@ -182,3 +194,10 @@ p { margin: 0; }
 .cost-row { display: flex; justify-content: space-between; gap: 8px; }
 .cost-track { display: block; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .cost-bar { display: block; height: 100%; background: var(--llm); }
+
+/* Touch screens: larger targets for small controls. */
+@media (pointer: coarse) {
+  .chip .x { width: 32px; height: 32px; }
+  .ex, .results .w, .linkish { min-height: 36px; }
+  .results .w { padding-inline: 12px; }
+}
