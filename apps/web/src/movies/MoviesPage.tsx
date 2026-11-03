@@ -181,11 +181,14 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
     setText(query.replace(new RegExp(`${escaped}\\s*$`, "i"), `${s.to} `));
     inputRef.current?.focus();
   };
+  // Examples show at startup and whenever the input is empty.
+  const [submitted, setSubmitted] = useState(false);
   const busy = searching || running;
   const askAssistant = (tier?: "oracle") => runAssistant(query, chipsToSearchHints(chips), logRules, tier);
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (busy) return;
+    setSubmitted(true);
     if (startsNewSearch(query, ignoreFollowUp)) resetConversation();
     if (decision.route === "lookup" && lookup) void runLookup(lookup);
     else if (decision.route === "assistant") void askAssistant();
@@ -200,19 +203,17 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
     <main className={`page${devMode ? " with-dev" : ""}`}>
       <header className="head">
         <div className="head-row">
-          <h1>Alfred Movies</h1>
+          <h1>Alfred, Movies!</h1>
           <button type="button" className="btn ghost dev-toggle" aria-pressed={devMode} onClick={onToggleDev}>
             Dev mode: {devMode ? "on" : "off"}
           </button>
         </div>
-        <p className="muted">Type a request. Rules parse it in the browser as you type. Catalog of {catalog.length.toLocaleString()} movies from TMDB.</p>
       </header>
 
       <div className="layout">
       <div className="main-col">
       <section className="sim" aria-label="Movie search">
         <div className="understood">
-          <span className="eyebrow">Understood so far · select × to remove</span>
           <div className="chips" aria-live="polite">
             {chips.map((c) => {
               const kind = `${c.negate ? "not " : ""}${KIND_LABEL[c.kind] ?? c.kind}`;
@@ -258,28 +259,33 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
               <div ref={mirrorRef} className="qmirror" aria-hidden="true">
                 {wordSegments(query, parsed).map((seg, i) => {
                   const chip = seg.sig ? chips.find((c) => c.sig === seg.sig) : undefined;
-                  return <span key={i} className={chip ? `mark ${chip.negate ? "neg" : chip.kind}` : undefined}>{seg.text}</span>;
+                  return <span key={i} className={chip && devMode ? `mark ${chip.negate ? "neg" : chip.kind}` : undefined}>{seg.text}</span>;
                 })}
               </div>
               <input id="q" ref={inputRef} type="text" autoComplete="off" spellCheck={false} maxLength={MAX_QUERY_CHARS} value={query} onChange={(e) => setText(e.target.value)} onScroll={(e) => { if (mirrorRef.current) mirrorRef.current.scrollLeft = e.currentTarget.scrollLeft; }} />
+              {query && <button type="button" className="clear" aria-label="Clear search" onClick={() => { setText(""); inputRef.current?.focus(); }}>×</button>}
             </div>
             <button type="submit" className="btn" disabled={busy || decision.route === "empty"}>{busy ? "Working…" : "Search"}</button>
           </div>
-          <ol className="pipeline" aria-label="Stages used">
-            {pipelineStages(dev.entries.find((e) => e.kind !== "load" && e.title.trim() === query.trim()) ?? null, parseMs).map((stage) => (
-              <li key={stage.id} className={`stage-${stage.id}${stage.ran ? " ran" : ""}`}>
-                <span>{stage.label}</span>
-                <span className="pipeline-ms">{stage.ran ? stage.time : "not used"}</span>
-              </li>
-            ))}
-          </ol>
+          {devMode && (
+            <ol className="pipeline" aria-label="Stages used">
+              {pipelineStages(dev.entries.find((e) => e.kind !== "load" && e.title.trim() === query.trim()) ?? null, parseMs).map((stage) => (
+                <li key={stage.id} className={`stage-${stage.id}${stage.ran ? " ran" : ""}`}>
+                  <span>{stage.label}</span>
+                  <span className="pipeline-ms">{stage.ran ? stage.time : "not used"}</span>
+                </li>
+              ))}
+            </ol>
+          )}
           {query.length >= MAX_QUERY_CHARS - 50 && <span className="note counter">{query.length}/{MAX_QUERY_CHARS} characters</span>}
-          <div className="examples">
-            <span className="eyebrow">Examples</span>
-            {EXAMPLES.map((ex) => (
-              <button key={ex} type="button" className="ex" onClick={() => setText(ex)}>{ex}</button>
-            ))}
-          </div>
+          {(!submitted || !query.trim()) && (
+            <div className="examples">
+              <span className="eyebrow">Examples</span>
+              {EXAMPLES.map((ex) => (
+                <button key={ex} type="button" className="ex" onClick={() => setText(ex)}>{ex}</button>
+              ))}
+            </div>
+          )}
         </form>
 
         {lookup && lookupText && (

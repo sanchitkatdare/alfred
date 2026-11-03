@@ -1,3 +1,4 @@
+import { QUESTION_LIMIT_MS } from "./assistant";
 import type { Movie } from "./catalog";
 import type { SemanticResult } from "./useSemanticSearch";
 
@@ -39,11 +40,13 @@ export function ResultsPanel({ semantic, matchCount, catalogSize, movies, synops
     <div className="panel">
       <div className="panel-head">
         <h2>{semantic ? "Best matches by meaning" : "Results"}</h2>
-        <div className="panel-head-side">
-          <span className="note">{semantic ? `ranked in ${semantic.ms} ms` : `${matchCount} of ${catalogSize} match`}</span>
-          {semantic && <button type="button" className="linkish" disabled={busy} onClick={onOracle}>No, Alfred, not what I wanted. Ask Oracle instead</button>}
-        </div>
+        <span className="note">{semantic ? `ranked in ${semantic.ms} ms` : `${matchCount} of ${catalogSize} match`}</span>
       </div>
+      {semantic && (
+        <button type="button" className="linkish oracle" disabled={busy} onClick={onOracle} title={`Sends your request to Gemma, Google's open model, on Cloudflare Workers AI. Slower: up to ${QUESTION_LIMIT_MS.oracle / 1000} s.`}>
+          No, Alfred, not what I wanted. Ask Oracle instead
+        </button>
+      )}
       {searchError && (
         <p className="answer failed dismissible" role="alert">
           <span>{searchError}</span>

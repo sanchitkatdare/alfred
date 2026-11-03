@@ -74,7 +74,7 @@ p { margin: 0; }
 .grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
 .panel { display: grid; gap: 10px; align-content: start; min-width: 0; }
 .panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.panel-head-side { display: flex; justify-content: flex-end; align-items: baseline; gap: 4px 10px; flex-wrap: wrap; margin-left: auto; }
+.oracle { justify-self: start; }
 
 .results { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
 /* Results fill the width in columns of at least 380 px. */
@@ -82,8 +82,8 @@ p { margin: 0; }
 .results li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 0; border-bottom: 1px solid var(--line); align-items: center; }
 .results .t { font-weight: 600; }
 .results .m { font-family: var(--f-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.results .w { border: 1px solid var(--line); background: transparent; border-radius: 6px; font-size: 12.5px; padding: 3px 9px; grid-row: span 2; }
-.results .w:hover { border-color: var(--muted); }
+.results .w { border: 0; background: transparent; color: var(--muted); font-size: 12.5px; padding: 3px 0; grid-row: span 2; }
+.results .w:hover { color: var(--fg); text-decoration: underline; }
 .results .empty { color: var(--muted); font-size: 13.5px; }
 .linkish { border: 0; background: none; padding: 0; color: var(--semantic); text-decoration: underline; font-size: 13px; }
 
@@ -163,6 +163,9 @@ p { margin: 0; }
 /* Visuals (step 3.6) */
 .qinput { position: relative; min-width: 0; display: grid; background: var(--bg); border-radius: 8px; }
 .qinput #q { position: relative; background: transparent; }
+.qinput #q, .qinput .qmirror { padding-right: 40px; }
+.qinput .clear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 30px; height: 30px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; }
+.qinput .clear:hover { background: var(--line); color: var(--fg); }
 .qmirror { position: absolute; inset: 0; box-sizing: border-box; background: none; border-color: transparent; color: transparent; white-space: pre; overflow: hidden; pointer-events: none; }
 .qmirror .mark { text-decoration: underline 2px; text-underline-offset: 4px; text-decoration-color: var(--semantic); }
 .qmirror .mark.task { text-decoration-color: var(--llm); }
@@ -180,6 +183,9 @@ p { margin: 0; }
 .score { grid-column: 1 / -1; display: flex; height: 5px; border-radius: 3px; overflow: hidden; background: var(--line); }
 .score-meaning { background: var(--semantic); }
 .score-bonus { background: var(--local); }
+/* Outside dev mode: one thin bar, no meaning/popularity split. */
+.page:not(.with-dev) .score { height: 3px; }
+.page:not(.with-dev) .score-bonus { background: var(--semantic); }
 
 .timeline { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 4px; font-size: 12px; }
 .timeline li { display: grid; grid-template-columns: minmax(70px, 110px) minmax(40px, 1fr) auto; gap: 8px; align-items: center; color: var(--muted); }
@@ -199,5 +205,5 @@ p { margin: 0; }
 @media (pointer: coarse) {
   .chip .x { width: 32px; height: 32px; }
   .ex, .results .w, .linkish { min-height: 36px; }
-  .results .w { padding-inline: 12px; }
+  .results .w { padding-inline: 8px; }
 }
