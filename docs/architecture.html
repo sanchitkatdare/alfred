@@ -416,7 +416,7 @@ footer { font-size: 13px; color: var(--muted); }
       { from: 0, to: 1, label: "GET app shell (HTML, JS, CSS)", meta: "≈ 150 KB gz" },
       { from: 1, to: 0, label: "Static files from CDN cache", meta: "Pages" },
       { self: 0, label: "Render UI. Read watched list and pantry from localStorage.", meta: "< 5 ms" },
-      { from: 0, to: 1, label: "GET catalog-meta.json, synopses and catalog-vectors.bin; after first paint", meta: "≈ 9 MB gz at 20k" },
+      { from: 0, to: 1, label: "GET catalog-meta.json, synopses and catalog-vectors.bin; search bar disabled with a progress bar until done", meta: "≈ 9 MB gz at 20k" },
       { self: 0, label: "Build in-memory index and rule dictionaries", meta: "≈ 20-50 ms" } ] },
     { id: "typing", tab: "While typing", total: "No network · 0 AI calls", steps: [
       { self: 0, label: "Tokenize and match rules. Update chips.", meta: "< 1 ms per keystroke" },

@@ -180,6 +180,14 @@ p { margin: 0; }
 .qinput #q, .qinput .qmirror { padding-right: 40px; }
 .qinput .clear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 30px; height: 30px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; }
 .qinput .clear:hover { background: var(--line); color: var(--fg); }
+#q:disabled { cursor: progress; }
+.ex:disabled { opacity: 0.55; cursor: progress; }
+/* Download progress along the bottom edge of the search input. */
+.loadbar { position: absolute; left: 6px; right: 6px; bottom: 3px; height: 3px; border-radius: 2px; overflow: hidden; background: var(--line); pointer-events: none; }
+.loadbar > span { display: block; height: 100%; width: 0; background: var(--semantic); transition: width 200ms linear; }
+.loadbar.indeterminate > span { width: 30%; animation: loadbar-slide 1.1s ease-in-out infinite; }
+@keyframes loadbar-slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+@media (prefers-reduced-motion: reduce) { .loadbar.indeterminate > span { animation: none; width: 100%; opacity: 0.4; } }
 .qmirror { position: absolute; inset: 0; box-sizing: border-box; background: none; border-color: transparent; color: transparent; white-space: pre; overflow: hidden; pointer-events: none; }
 .qmirror .mark { text-decoration: underline 2px; text-underline-offset: 4px; text-decoration-color: var(--semantic); }
 .qmirror .mark.task { text-decoration-color: var(--llm); }

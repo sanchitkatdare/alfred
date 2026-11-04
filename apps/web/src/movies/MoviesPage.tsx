@@ -8,7 +8,7 @@ import { AssistantPanel } from "./AssistantPanel";
 import { createMovieAssistant } from "./assistant";
 import type { CatalogMeta, Movie } from "./catalog";
 import { buildMovieParserConfig, MOVIE_ROUTER_OPTIONS } from "./config";
-import { loadCatalog, loadStories, loadSynopses, loadVectors } from "./data";
+import { loadCatalog, loadStories, loadSynopses, loadVectors, vectorBytes } from "./data";
 import { aboutAnswer, answerFromCatalog, buildTitleIndex, describeLookup, detectLookup, RUNS_ON_ENTER, type Lookup } from "./lookups";
 import { chipsToSearchHints } from "./hints";
 import { byRating, filterCatalog } from "./tools";
@@ -46,6 +46,36 @@ const ROUTES: Record<AppRoute, { name: string; cost: string; detail: string }> =
   empty: { name: "Waiting for input", cost: "", detail: "Type a request or pick an example." },
 };
 
+type LoadFile = "meta" | "synopses" | "vectors";
+
+/** Share of the catalog files downloaded, 0 to 1. Null until the metadata has loaded (sizes unknown). */
+function loadProgress(loaded: Record<LoadFile, number>, meta: CatalogMeta): number | null {
+  const synopses = meta.synopses?.bytes ?? 0;
+  const total = loaded.meta + synopses + vectorBytes(meta);
+  const done = loaded.meta + (synopses ? loaded.synopses : 0) + loaded.vectors;
+  return total ? Math.min(1, done / total) : null;
+}
+
+const loadingLabel = (progress: number | null) => `Loading movies…${progress === null ? "" : ` ${Math.floor(progress * 100)}%`}`;
+
+/** Thin bar along the bottom of the search input; animated stripe while the total size is unknown. */
+function LoadBar({ progress }: { progress: number | null }) {
+  return (
+    <span className={`loadbar${progress === null ? " indeterminate" : ""}`} role="progressbar" aria-label="Loading movies" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress === null ? undefined : Math.floor(progress * 100)}>
+      <span style={progress === null ? undefined : { width: `${progress * 100}%` }} />
+    </span>
+  );
+}
+
+function Footer() {
+  return (
+    <footer className="foot">
+      <p><img src={tmdbLogo} alt="TMDB" height={10} /> This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+      <p>Search text and assistant questions are sent to Cloudflare Workers AI. Your watched list stays in this browser.</p>
+    </footer>
+  );
+}
+
 interface MovieSearchProps {
   meta: CatalogMeta;
   catalog: Movie[];
@@ -54,11 +84,14 @@ interface MovieSearchProps {
   loadEntry: number | null;
   devMode: boolean;
   onToggleDev(): void;
+  /** Download progress of the catalog files, for the search bar. */
+  progress: number | null;
+  onBytes(file: LoadFile, bytes: number): void;
 }
 
 const loadItem = (file: string, bytes: number, ms: number) => ({ stage: "data" as const, label: file, detail: `${(bytes / 1e6).toFixed(2)} MB`, ms });
 
-function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleDev }: MovieSearchProps) {
+function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleDev, progress, onBytes }: MovieSearchProps) {
   const [query, setQuery] = useState("");
   const [removed, setRemoved] = useState<ReadonlySet<string>>(new Set());
   const { watched, getWatched, markWatched, unmark, clear } = useWatched();
@@ -68,7 +101,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
   const byId = useMemo(() => new Map(catalog.map((m) => [m.id, m])), [catalog]);
   const titleIndex = useMemo(() => buildTitleIndex(catalog), [catalog]);
 
-  // Search data loads after the page appears, so typing and filters work first.
+  // Vectors and synopses load right after the metadata; the search bar stays disabled until both have arrived.
   const vectorsRef = useRef<Promise<VectorIndex> | null>(null);
   const reportLoad = useCallback(
     (file: string, bytes: number, ms: number) => dev.add(loadEntry, loadItem(file, bytes, ms)),
@@ -76,19 +109,25 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
   );
   const getVectors = useCallback(() => {
     if (!vectorsRef.current) {
-      const p = loadVectors(meta, reportLoad);
+      const p = loadVectors(meta, reportLoad, (n) => onBytes("vectors", n));
       vectorsRef.current = p;
       p.catch(() => vectorsRef.current === p && (vectorsRef.current = null));
     }
     return vectorsRef.current;
-  }, [meta, reportLoad]);
+  }, [meta, reportLoad, onBytes]);
   const [synopses, setSynopses] = useState<Record<string, string>>({});
+  // A failed file still ends the wait: filters work without it, and search by meaning shows its own error.
+  const [dataReady, setDataReady] = useState(false);
   useEffect(() => {
+    // The timer lets React's StrictMode drop its first, discarded effect run before anything downloads.
     const t = setTimeout(() => {
-      void Promise.allSettled([getVectors(), loadSynopses(reportLoad).then(setSynopses)]).then(() => loadEntry !== null && dev.finish(loadEntry));
-    }, 300);
+      void Promise.allSettled([getVectors(), loadSynopses(reportLoad, (n) => onBytes("synopses", n)).then(setSynopses)]).then(() => {
+        setDataReady(true);
+        if (loadEntry !== null) dev.finish(loadEntry);
+      });
+    }, 0);
     return () => clearTimeout(t);
-  }, [getVectors, reportLoad, dev.finish, loadEntry]);
+  }, [getVectors, reportLoad, onBytes, dev.finish, loadEntry]);
 
   // iOS Safari keeps the layout viewport when the keyboard opens; --kb lifts the pinned composer above the keyboard.
   useEffect(() => {
@@ -282,10 +321,11 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
                   return <span key={i} className={chip && devMode ? `mark ${chip.negate ? "neg" : chip.kind}` : undefined}>{seg.text}</span>;
                 })}
               </div>
-              <input id="q" ref={inputRef} type="text" placeholder="Ask for a movie" autoComplete="off" spellCheck={false} maxLength={MAX_QUERY_CHARS} value={query} onChange={(e) => setText(e.target.value)} onScroll={(e) => { if (mirrorRef.current) mirrorRef.current.scrollLeft = e.currentTarget.scrollLeft; }} />
+              <input id="q" ref={inputRef} type="text" disabled={!dataReady} placeholder={dataReady ? "Ask for a movie" : loadingLabel(progress)} autoComplete="off" spellCheck={false} maxLength={MAX_QUERY_CHARS} value={query} onChange={(e) => setText(e.target.value)} onScroll={(e) => { if (mirrorRef.current) mirrorRef.current.scrollLeft = e.currentTarget.scrollLeft; }} />
               {query && <button type="button" className="clear" aria-label="Clear search" onClick={() => { setText(""); inputRef.current?.focus(); }}>×</button>}
+              {!dataReady && <LoadBar progress={progress} />}
             </div>
-            <button type="submit" className="btn" disabled={busy || decision.route === "empty"}>{busy ? "Working…" : "Search"}</button>
+            <button type="submit" className="btn" disabled={!dataReady || busy || decision.route === "empty"}>{busy ? "Working…" : "Search"}</button>
           </div>
           {devMode && (
             <ol className="pipeline" aria-label="Stages used">
@@ -303,7 +343,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
           <div className="examples">
             <span className="eyebrow">Examples</span>
             {EXAMPLES.map((ex) => (
-              <button key={ex} type="button" className="ex" onClick={() => setText(ex)}>{ex}</button>
+              <button key={ex} type="button" className="ex" disabled={!dataReady} onClick={() => setText(ex)}>{ex}</button>
             ))}
           </div>
         )}
@@ -350,10 +390,43 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
       )}
       </div>
 
-      <footer className="foot">
-        <p><img src={tmdbLogo} alt="TMDB" height={10} /> This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
-        <p>Search text and assistant questions are sent to Cloudflare Workers AI. Your watched list stays in this browser.</p>
-      </footer>
+      <Footer />
+    </main>
+  );
+}
+
+/** The home screen while the metadata downloads: same layout as MovieSearch, search bar disabled. */
+function LoadingSearch({ devMode, onToggleDev }: { devMode: boolean; onToggleDev(): void }) {
+  return (
+    <main className={`page${devMode ? " with-dev" : ""}`}>
+      <header className="head">
+        <div className="head-row">
+          <button type="button" className="btn ghost dev-toggle" aria-pressed={devMode} onClick={onToggleDev}>Dev mode: {devMode ? "on" : "off"}</button>
+        </div>
+      </header>
+      <div className="layout">
+        <div className="main-col">
+          <section className="sim home" aria-label="Movie search" aria-busy="true">
+            <h1 className="home-title">Alfred, Movies!</h1>
+            <div className="composer">
+              <div className="qbox">
+                <div className="qrow">
+                  <div className="qinput">
+                    <input id="q" type="text" disabled placeholder={loadingLabel(null)} />
+                    <LoadBar progress={null} />
+                  </div>
+                  <button type="button" className="btn" disabled>Search</button>
+                </div>
+              </div>
+              <div className="examples">
+                <span className="eyebrow">Examples</span>
+                {EXAMPLES.map((ex) => <button key={ex} type="button" className="ex" disabled>{ex}</button>)}
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+      <Footer />
     </main>
   );
 }
@@ -384,6 +457,17 @@ export function MoviesPage() {
       }
       return !on;
     });
+  // Bytes downloaded per catalog file. Chunks arrive often; the state updates at most once per frame.
+  const [loaded, setLoaded] = useState<Record<LoadFile, number>>({ meta: 0, synopses: 0, vectors: 0 });
+  const pendingBytes = useRef(loaded);
+  const frame = useRef(0);
+  const onBytes = useCallback((file: LoadFile, bytes: number) => {
+    pendingBytes.current = { ...pendingBytes.current, [file]: bytes };
+    if (!frame.current) frame.current = requestAnimationFrame(() => {
+      frame.current = 0;
+      setLoaded(pendingBytes.current);
+    });
+  }, []);
   // React's StrictMode runs effects twice in development; load (and log) the catalog once.
   const loadStarted = useRef(false);
   useEffect(() => {
@@ -392,28 +476,26 @@ export function MoviesPage() {
     const entry = dev.start("load", "Page load");
     setLoadEntry(entry);
     const report = (file: string, bytes: number, ms: number) => dev.add(entry, loadItem(file, bytes, ms));
-    loadCatalog(report)
+    loadCatalog(report, (n) => onBytes("meta", n))
       .then(({ meta, catalog }) => {
+        setLoaded(pendingBytes.current);
         const started = performance.now();
         const config = buildMovieParserConfig(catalog);
         dev.add(entry, { stage: "rules", label: "Parser dictionaries built", detail: `${catalog.length.toLocaleString()} movies`, ms: Math.round(performance.now() - started) });
         setState({ status: "ready", meta, catalog, config });
       })
       .catch(() => setState({ status: "missing" }));
-  }, [dev.start, dev.add]);
+  }, [dev.start, dev.add, onBytes]);
 
   if (state.status === "ready") {
-    return <MovieSearch meta={state.meta} catalog={state.catalog} config={state.config} dev={dev} loadEntry={loadEntry} devMode={devMode} onToggleDev={toggleDev} />;
+    return <MovieSearch meta={state.meta} catalog={state.catalog} config={state.config} dev={dev} loadEntry={loadEntry} devMode={devMode} onToggleDev={toggleDev} progress={loadProgress(loaded, state.meta)} onBytes={onBytes} />;
   }
+  if (state.status === "loading") return <LoadingSearch devMode={devMode} onToggleDev={toggleDev} />;
   return (
     <main className="page">
       <header className="head">
         <h1>Alfred Movies</h1>
-        {state.status === "loading" ? (
-          <p className="muted">Loading the movie catalog…</p>
-        ) : (
-          <p className="muted">The movie catalog is missing. Run <code>pnpm --filter @alfred/web seed --count 500</code> with <code>TMDB_TOKEN</code> in the repo-root <code>.env</code>.</p>
-        )}
+        <p className="muted">The movie catalog is missing. Run <code>pnpm --filter @alfred/web seed --count 500</code> with <code>TMDB_TOKEN</code> in the repo-root <code>.env</code>.</p>
       </header>
     </main>
   );
