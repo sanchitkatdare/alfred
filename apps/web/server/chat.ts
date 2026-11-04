@@ -16,7 +16,7 @@ export const AI_GATEWAY_ID = "alfred";
 /** One LLM turn, for scripts that measure models. The agent loop makes 2-5 turns per task. */
 export const CHAT_TIMEOUT_MS = 25_000;
 /** One LLM turn in the app. The browser limits the whole question (`QUESTION_LIMIT_MS`). */
-export const CHAT_TIER_TIMEOUT_MS = { default: 10_000, oracle: 20_000 } as const;
+export const CHAT_TIER_TIMEOUT_MS = { default: 20_000, oracle: 40_000 } as const;
 
 const TOOL_SPECS = movieToolSpecs();
 

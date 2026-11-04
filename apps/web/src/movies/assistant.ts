@@ -8,7 +8,7 @@ export const HISTORY_CHARS = 8_000;
 export const MAX_TOOL_RESULT_CHARS = 3_900;
 
 /** Time limit for one question. Measured 2026-11-01: granite 9.2 s p90, gemma 41 s on the slowest of 5 tasks. */
-export const QUESTION_LIMIT_MS = { default: 15_000, oracle: 30_000 } as const;
+export const QUESTION_LIMIT_MS = { default: 30_000, oracle: 60_000 } as const;
 /** Server error when one model call passes its time limit. */
 export const MODEL_TOO_SLOW = "The model took too long.";
 
