@@ -7,7 +7,7 @@
  * Selection (docs/PLAN.md, Catalog): three language shares. English 60%, Indian languages 15% (split by each
  * language's count at 10+ votes), rest of the world 25%. Within each share about 15% are recent releases (last
  * 2 years) by popularity, the rest by vote count. Adult titles and runtimes under 60 minutes are excluded, and
- * every movie must pass the quality gate (English overview, runtime, release date, cast).
+ * every movie must pass the quality gate (English overview, runtime, release date). Cast is not required: Flow (2024) has none.
  *
  * Writes to public/data/:
  *   catalog-meta.json              movie metadata; names the matching vector file (written last)
@@ -25,6 +25,7 @@ import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { getPlatformProxy } from "wrangler";
 import { EMBEDDING_DIMENSIONS, EMBEDDING_MODEL, type Env } from "../server/env.ts";
+import { withTimeout } from "../server/timing.ts";
 import type { CatalogMeta } from "../src/movies/catalog.ts";
 import { STORY_SHARDS, storyShardOf, type StoryShard } from "../src/movies/stories.ts";
 import { quantize, VECTOR_DIMENSIONS, VECTOR_FILE_BUDGET_BYTES } from "../src/movies/vectors.ts";
@@ -39,9 +40,12 @@ const PAGE_SIZE = 20;
 const SYNOPSIS_CHARS = 160;
 const TOP_CAST = 4;
 const EMBED_BATCH = 50;
+/** One batch takes about 0.3 s. A remote call that stalls (seen 2026-11-04) is abandoned and retried. */
+const EMBED_BATCH_TIMEOUT_MS = 60_000;
 const CACHE_FILE = ".cache/embeddings.json";
 const DETAIL_CONCURRENCY = 8;
-const MIN_OVERVIEW_CHARS = 150;
+/** Measured on the 10k catalog (2026-11-04): 20% of overviews are under 150 characters (Iron Man: 132), 0.1% under 60 (The Big Short: 58). */
+const MIN_OVERVIEW_CHARS = 40;
 const INDIAN_LANGUAGES = ["hi", "ta", "te", "ml", "kn", "bn", "mr", "pa", "gu"];
 /** Language shares of the catalog. `minVotes` is the TMDB vote floor for candidates in that share. */
 const SHARES = { english: { share: 0.6, minVotes: 100 }, indian: { share: 0.15, minVotes: 5 }, world: { share: 0.25, minVotes: 100 } };
@@ -133,7 +137,7 @@ function ordered(candidates: Candidate[], slots: number, recentSince: string): C
 }
 
 const passesGate = (d: MovieDetails) =>
-  !!d.release_date && (d.runtime ?? 0) >= 60 && d.overview.trim().length >= MIN_OVERVIEW_CHARS && d.credits.cast.length > 0;
+  !!d.release_date && (d.runtime ?? 0) >= 60 && d.overview.trim().length >= MIN_OVERVIEW_CHARS;
 
 /** Fetches details in list order until `slots` movies pass the quality gate. Returns them and the untried rest of the list. */
 async function fill(token: string, list: Candidate[], slots: number): Promise<{ kept: MovieDetails[]; rest: Candidate[] }> {
@@ -156,7 +160,8 @@ function split(total: number, weights: number[]): number[] {
   const exact = weights.map((w) => (total * w) / sum);
   const out = exact.map(Math.floor);
   const order = exact.map((x, i) => [x - Math.floor(x), i] as const).sort((a, b) => b[0] - a[0]);
-  for (let k = 0; k < total - out.reduce((a, b) => a + b, 0); k++) out[order[k]![1]]!++;
+  const left = total - out.reduce((a, b) => a + b, 0);
+  for (let k = 0; k < left; k++) out[order[k]![1]]!++;
   return out;
 }
 
@@ -317,7 +322,7 @@ async function main() {
         await mkdir(".cache", { recursive: true });
         const batches = chunk(missing, EMBED_BATCH);
         for (const [n, batch] of batches.entries()) {
-          const out = await withRetry(() => proxy.env.AI.run(EMBEDDING_MODEL, { text: batch.map((i) => texts[i]!) }) as Promise<{ data: number[][] }>);
+          const out = await withRetry(() => withTimeout(proxy.env.AI.run(EMBEDDING_MODEL, { text: batch.map((i) => texts[i]!) }) as Promise<{ data: number[][] }>, EMBED_BATCH_TIMEOUT_MS, "Embedding batch"), 5);
           if (out.data[0]?.length !== EMBEDDING_DIMENSIONS) throw new Error(`Expected ${EMBEDDING_DIMENSIONS} dimensions, got ${out.data[0]?.length}`);
           batch.forEach((i, k) => (cache[details[i]!.id] = { hash: hashes[i]!, vector: encodeVector(out.data[k]!) }));
           // Save after every batch, so an interrupted run loses at most one batch of paid embeddings.
