@@ -59,7 +59,7 @@ interface MovieSearchProps {
 const loadItem = (file: string, bytes: number, ms: number) => ({ stage: "data" as const, label: file, detail: `${(bytes / 1e6).toFixed(2)} MB`, ms });
 
 function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleDev }: MovieSearchProps) {
-  const [query, setQuery] = useState(EXAMPLES[2]!);
+  const [query, setQuery] = useState("");
   const [removed, setRemoved] = useState<ReadonlySet<string>>(new Set());
   const { watched, getWatched, markWatched, unmark, clear } = useWatched();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -89,6 +89,20 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
     }, 300);
     return () => clearTimeout(t);
   }, [getVectors, reportLoad, dev.finish, loadEntry]);
+
+  // iOS Safari keeps the layout viewport when the keyboard opens; --kb lifts the pinned composer above the keyboard.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => document.documentElement.style.setProperty("--kb", `${Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop))}px`);
+    update();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
+  }, []);
 
   // The dev-log entry that background reports (embedding, tool searches) belong to.
   const currentEntry = useRef<number | null>(null);
@@ -181,7 +195,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
     setText(query.replace(new RegExp(`${escaped}\\s*$`, "i"), `${s.to} `));
     inputRef.current?.focus();
   };
-  // Examples show at startup and whenever the input is empty.
+  // Before the first search the page shows only the centered composer (home). Examples show at home and whenever the input is empty.
   const [submitted, setSubmitted] = useState(false);
   const busy = searching || running;
   const askAssistant = (tier?: "oracle") => runAssistant(query, chipsToSearchHints(chips), logRules, tier);
@@ -189,7 +203,12 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
     e.preventDefault();
     if (busy) return;
     setSubmitted(true);
-    if (startsNewSearch(query, ignoreFollowUp)) resetConversation();
+    // Touch screens: close the keyboard so the answer has room.
+    if (matchMedia("(pointer: coarse)").matches) inputRef.current?.blur();
+    if (startsNewSearch(query, ignoreFollowUp)) {
+      resetConversation();
+      window.scrollTo({ top: 0 });
+    }
     if (decision.route === "lookup" && lookup) void runLookup(lookup);
     else if (decision.route === "assistant") void askAssistant();
     else if (decision.route === "semantic") void runSearch({ query, chips, text: parsed.leftover.join(" ") }, logRules);
@@ -203,7 +222,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
     <main className={`page${devMode ? " with-dev" : ""}`}>
       <header className="head">
         <div className="head-row">
-          <h1>Alfred, Movies!</h1>
+          {submitted && <h1>Alfred, Movies!</h1>}
           <button type="button" className="btn ghost dev-toggle" aria-pressed={devMode} onClick={onToggleDev}>
             Dev mode: {devMode ? "on" : "off"}
           </button>
@@ -212,7 +231,9 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
 
       <div className="layout">
       <div className="main-col">
-      <section className="sim" aria-label="Movie search">
+      <section className={`sim${submitted ? "" : " home"}`} aria-label="Movie search">
+        {!submitted && <h1 className="home-title">Alfred, Movies!</h1>}
+        <div className="composer">
         <div className="understood">
           <div className="chips" aria-live="polite">
             {chips.map((c) => {
@@ -248,7 +269,6 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
                 <span className="kind">complete</span><span className="val">{parsed.suggestion.to}?</span>
               </button>
             )}
-            {!chips.length && !followUp && !lookup && !parsed.leftover.length && !parsed.suggestion && <span className="placeholder">Chips appear here as you type.</span>}
           </div>
         </div>
 
@@ -262,7 +282,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
                   return <span key={i} className={chip && devMode ? `mark ${chip.negate ? "neg" : chip.kind}` : undefined}>{seg.text}</span>;
                 })}
               </div>
-              <input id="q" ref={inputRef} type="text" autoComplete="off" spellCheck={false} maxLength={MAX_QUERY_CHARS} value={query} onChange={(e) => setText(e.target.value)} onScroll={(e) => { if (mirrorRef.current) mirrorRef.current.scrollLeft = e.currentTarget.scrollLeft; }} />
+              <input id="q" ref={inputRef} type="text" placeholder="Ask for a movie" autoComplete="off" spellCheck={false} maxLength={MAX_QUERY_CHARS} value={query} onChange={(e) => setText(e.target.value)} onScroll={(e) => { if (mirrorRef.current) mirrorRef.current.scrollLeft = e.currentTarget.scrollLeft; }} />
               {query && <button type="button" className="clear" aria-label="Clear search" onClick={() => { setText(""); inputRef.current?.focus(); }}>×</button>}
             </div>
             <button type="submit" className="btn" disabled={busy || decision.route === "empty"}>{busy ? "Working…" : "Search"}</button>
@@ -278,16 +298,18 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
             </ol>
           )}
           {query.length >= MAX_QUERY_CHARS - 50 && <span className="note counter">{query.length}/{MAX_QUERY_CHARS} characters</span>}
-          {(!submitted || !query.trim()) && (
-            <div className="examples">
-              <span className="eyebrow">Examples</span>
-              {EXAMPLES.map((ex) => (
-                <button key={ex} type="button" className="ex" onClick={() => setText(ex)}>{ex}</button>
-              ))}
-            </div>
-          )}
         </form>
+        {(!submitted || !query.trim()) && (
+          <div className="examples">
+            <span className="eyebrow">Examples</span>
+            {EXAMPLES.map((ex) => (
+              <button key={ex} type="button" className="ex" onClick={() => setText(ex)}>{ex}</button>
+            ))}
+          </div>
+        )}
+        </div>
 
+        {submitted && <>
         {lookup && lookupText && (
           <section className="lookup-answer" aria-live="polite">
             <p>{lookupText.text}</p>
@@ -316,6 +338,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
             onClear={clear}
           />
         </div>
+        </>}
       </section>
 
       </div>

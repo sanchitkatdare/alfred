@@ -23,13 +23,14 @@ try {
   for (const size of SIZES) {
     const page = await browser.newPage({ viewport: { width: size.width, height: size.height }, isMobile: size.mobile, hasTouch: size.mobile });
     await page.goto(cli.url!);
-    await page.locator(".results li").first().waitFor();
+    await page.locator("#q").waitFor();
     const overflow = async (state: string) => {
       const extra: number = await page.evaluate("document.documentElement.scrollWidth - window.innerWidth");
       if (extra > 0) failures.push(`${size.name}, ${state}: page scrolls sideways by ${extra} px`);
     };
     await overflow("start");
     await page.screenshot({ path: `${cli.out}/${size.name}-start.png`, fullPage: true });
+    await page.locator("#q").fill("like inception but not sci-fi, under 2 hours");
     await page.locator("#q").press("Enter");
     await page.getByRole("heading", { name: "Best matches by meaning" }).waitFor();
     await overflow("search");
