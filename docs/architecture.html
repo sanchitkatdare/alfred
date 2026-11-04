@@ -185,7 +185,7 @@ footer { font-size: 13px; color: var(--muted); }
     <div class="decision"><span class="k">Hosting</span><span class="v">Cloudflare Pages + Functions, free plan</span><span class="was">Replaces Fly.io static server</span></div>
     <div class="decision"><span class="k">LLM</span><span class="v">Workers AI granite-4.0-h-micro for assistant tasks; gemma-4-26b-a4b-it behind "Ask Oracle instead"</span><span class="was">Replaces WebLLM in the browser</span></div>
     <div class="decision"><span class="k">Routing</span><span class="v">Rules first, embeddings second, LLM last</span><span class="was">Decision trace shown in the UI</span></div>
-    <div class="decision"><span class="k">Catalog</span><span class="v">≤ 10k movies. Metadata and 8-bit search vectors in the browser</span><span class="was">Replaces Orama and Dexie</span></div>
+    <div class="decision"><span class="k">Catalog</span><span class="v">≤ 20k movies, by language shares (English 60%, Indian 15%, world 25%). Metadata and 8-bit search vectors in the browser</span><span class="was">Replaces Orama and Dexie</span></div>
     <div class="decision"><span class="k">User data</span><span class="v">localStorage, per browser, no accounts</span><span class="was">New browser starts empty</span></div>
     <div class="decision"><span class="k">People</span><span class="v">Top 3-5 cast and directors, one generic matcher</span><span class="was">Same matcher for genres and ingredients</span></div>
   </div>
@@ -234,13 +234,13 @@ footer { font-size: 13px; color: var(--muted); }
   </div>
   <h3>Build time, once per catalog update</h3>
   <div class="pipe">
-    <div class="node"><b>Catalog source</b><span class="muted">≤ 10k movies: title, year, genres, runtime, rating, top cast, directors, overview</span></div>
+    <div class="node"><b>Catalog source</b><span class="muted">≤ 20k movies by language shares: title, year, language, genres, runtime, rating, top cast, directors, overview</span></div>
     <div class="arrow" aria-hidden="true">→</div>
     <div class="node"><b>apps/web/scripts/seed.ts</b><span class="muted">Fetch from TMDB. Embed title, tagline, genres, overview and keywords with Workers AI.</span></div>
     <div class="arrow" aria-hidden="true">→</div>
     <div class="outs">
-      <div class="node"><b>catalog-meta.json + catalog-synopses.json</b><span class="muted">Static files on Pages. About 1.2 MB gzipped at 10k.</span></div>
-      <div class="node"><b>catalog-vectors.bin</b><span class="muted">8-bit vectors, 384 per movie: 3.84 MB at 10k, 4 MB budget enforced by the seed.</span></div>
+      <div class="node"><b>catalog-meta.json + catalog-synopses.json</b><span class="muted">Static files on Pages. About 1.2 MB gzipped at 10k, about 2.5 MB at 20k (estimate).</span></div>
+      <div class="node"><b>catalog-vectors.bin</b><span class="muted">8-bit vectors, 384 per movie: 3.84 MB at 10k, 7.68 MB at 20k; 8 MB budget enforced by the seed.</span></div>
       <div class="node"><b>stories/0-63.json</b><span class="muted">Overview, tagline, keywords. Fetched only for get_movie_details.</span></div>
     </div>
   </div>
@@ -266,7 +266,7 @@ footer { font-size: 13px; color: var(--muted); }
         <tr><td>Intent check</td><td>Same embedding, compared with example phrases</td><td>Worker</td><td>Submit, rules unsure</td><td class="num"><span class="tag semantic">0 extra</span></td></tr>
         <tr><td>Pantry workflows</td><td>Optional LLM summary</td><td>Workers AI</td><td>Task matches a workflow</td><td class="num"><span class="tag llm">0-1 LLM</span></td></tr>
         <tr><td>Assistant</td><td>LLM: granite-4.0-h-micro, with parser hints (8 neurons per task)</td><td>Workers AI via AI Gateway</td><td>Task words or low confidence</td><td class="num"><span class="tag llm">2-5 LLM</span></td></tr>
-        <tr><td>Catalog seeding</td><td>Embedding model</td><td>Workers AI</td><td>Once per catalog build</td><td class="num">10k embeddings</td></tr>
+        <tr><td>Catalog seeding</td><td>Embedding model</td><td>Workers AI</td><td>Once per catalog build</td><td class="num">20k embeddings</td></tr>
       </tbody>
     </table>
   </div>
@@ -334,7 +334,7 @@ footer { font-size: 13px; color: var(--muted); }
       <tbody>
         <tr><td>App shell (HTML, JS, CSS)</td><td>Pages CDN</td><td class="num">≈ 150 KB gz</td><td>Until next deploy</td></tr>
         <tr><td>Catalog metadata and dictionaries</td><td>Pages, then browser memory</td><td class="num">≈ 500 KB gz</td><td>HTTP cache</td></tr>
-        <tr><td>Search vectors (10k × 384, 8-bit)</td><td>Pages, then browser memory</td><td class="num">3.84 MB</td><td>HTTP cache</td></tr>
+        <tr><td>Search vectors (20k × 384, 8-bit)</td><td>Pages, then browser memory</td><td class="num">7.68 MB</td><td>HTTP cache</td></tr>
         <tr><td>Story text (overview, tagline, keywords)</td><td>Pages, 64 files, fetched on demand</td><td class="num">≈ 5 MB total</td><td>HTTP cache</td></tr>
         <tr><td>Watched list, ratings, pantry, shopping list</td><td>localStorage</td><td class="num">&lt; 50 KB, capped</td><td>Per browser. Safari can clear it after 7 days without a visit.</td></tr>
         <tr><td>Assistant conversation</td><td>Browser memory</td><td class="num">Small</td><td>Until the tab closes</td></tr>
@@ -416,7 +416,7 @@ footer { font-size: 13px; color: var(--muted); }
       { from: 0, to: 1, label: "GET app shell (HTML, JS, CSS)", meta: "≈ 150 KB gz" },
       { from: 1, to: 0, label: "Static files from CDN cache", meta: "Pages" },
       { self: 0, label: "Render UI. Read watched list and pantry from localStorage.", meta: "< 5 ms" },
-      { from: 0, to: 1, label: "GET catalog-meta.json, synopses and catalog-vectors.bin, after first paint", meta: "≈ 5 MB at 10k" },
+      { from: 0, to: 1, label: "GET catalog-meta.json, synopses and catalog-vectors.bin; after first paint", meta: "≈ 9 MB gz at 20k" },
       { self: 0, label: "Build in-memory index and rule dictionaries", meta: "≈ 20-50 ms" } ] },
     { id: "typing", tab: "While typing", total: "No network · 0 AI calls", steps: [
       { self: 0, label: "Tokenize and match rules. Update chips.", meta: "< 1 ms per keystroke" },

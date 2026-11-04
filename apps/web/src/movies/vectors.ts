@@ -4,8 +4,8 @@
  * similarity ignores the scale, so no scale is stored.
  */
 export const VECTOR_DIMENSIONS = 384;
-/** Hard size limit for catalog-vectors.bin. 10k movies use 3.84 MB. */
-export const VECTOR_FILE_BUDGET_BYTES = 4_000_000;
+/** Hard size limit for catalog-vectors.bin. 20k movies use 7.68 MB. */
+export const VECTOR_FILE_BUDGET_BYTES = 8_000_000;
 /**
  * Score bonus for popular movies: weight x log(votes) / log(max votes), so 0 to 0.15.
  * People describing a plot usually mean the well-known film. Tuned on 15 scene queries and

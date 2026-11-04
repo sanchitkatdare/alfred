@@ -4,8 +4,10 @@
  *   pnpm seed --count 500            # all files, including search vectors
  *   pnpm seed --count 500 --dry-run  # all files except vectors; no Workers AI calls
  *
- * Selection (docs/PLAN.md): about 85% by vote count, about 15% recent releases (last 2 years,
- * at least 100 votes) by popularity. Adult titles and runtimes under 60 minutes are excluded.
+ * Selection (docs/PLAN.md, Catalog): three language shares. English 60%, Indian languages 15% (split by each
+ * language's count at 10+ votes), rest of the world 25%. Within each share about 15% are recent releases (last
+ * 2 years) by popularity, the rest by vote count. Adult titles and runtimes under 60 minutes are excluded, and
+ * every movie must pass the quality gate (English overview, runtime, release date, cast).
  *
  * Writes to public/data/:
  *   catalog-meta.json              movie metadata; names the matching vector file (written last)
@@ -39,15 +41,25 @@ const TOP_CAST = 4;
 const EMBED_BATCH = 50;
 const CACHE_FILE = ".cache/embeddings.json";
 const DETAIL_CONCURRENCY = 8;
+const MIN_OVERVIEW_CHARS = 150;
+const INDIAN_LANGUAGES = ["hi", "ta", "te", "ml", "kn", "bn", "mr", "pa", "gu"];
+/** Language shares of the catalog. `minVotes` is the TMDB vote floor for candidates in that share. */
+const SHARES = { english: { share: 0.6, minVotes: 100 }, indian: { share: 0.15, minVotes: 5 }, world: { share: 0.25, minVotes: 100 } };
+/** Indian slots are split by each language's count of movies with at least this many votes. */
+const INDIAN_WEIGHT_VOTES = 10;
 
 const TMDB = "https://api.themoviedb.org/3";
 const TMDB_TIMEOUT_MS = 15_000;
+/** TMDB discover serves at most 500 pages per query. */
+const MAX_PAGES = 500;
 
-interface DiscoverPage { results: { id: number }[]; total_pages: number }
+interface Candidate { id: number; votes: number; popularity: number; date: string }
+interface DiscoverPage { results: { id: number; vote_count: number; popularity: number; release_date?: string }[]; total_pages: number }
 interface MovieDetails {
   id: number;
   title: string;
   original_title: string;
+  original_language: string;
   release_date: string;
   runtime: number | null;
   overview: string;
@@ -89,16 +101,63 @@ async function tmdb<T>(token: string, path: string, params: Record<string, strin
   }
 }
 
-async function discoverIds(token: string, count: number, params: Record<string, string | number>): Promise<number[]> {
-  const ids: number[] = [];
-  for (let page = 1; ids.length < count && page <= 500; page++) {
-    const data = await tmdb<DiscoverPage>(token, "/discover/movie", {
-      include_adult: "false", include_video: "false", language: "en-US", "with_runtime.gte": 60, page, ...params,
-    });
-    ids.push(...data.results.map((r) => r.id));
-    if (page >= data.total_pages) break;
+/** Every movie in one original language with at least `minVotes` votes, most votes first. Continues past the 500-page limit. */
+async function discoverLanguage(token: string, language: string, minVotes: number): Promise<Candidate[]> {
+  const found = new Map<number, Candidate>();
+  let maxVotes: number | undefined;
+  for (;;) {
+    let page = 1;
+    let total = 1;
+    for (; page <= Math.min(total, MAX_PAGES); page++) {
+      const data = await tmdb<DiscoverPage>(token, "/discover/movie", {
+        include_adult: "false", include_video: "false", language: "en-US", "with_runtime.gte": 60, sort_by: "vote_count.desc",
+        with_original_language: language, "vote_count.gte": minVotes, ...(maxVotes !== undefined ? { "vote_count.lte": maxVotes } : {}), page,
+      });
+      total = data.total_pages;
+      for (const r of data.results) found.set(r.id, { id: r.id, votes: r.vote_count, popularity: r.popularity, date: r.release_date ?? "" });
+    }
+    if (total <= MAX_PAGES) break;
+    // Page limit reached: query again from the lowest vote count seen.
+    const lowest = Math.min(...[...found.values()].map((c) => c.votes));
+    if (lowest === maxVotes) break;
+    maxVotes = lowest;
   }
-  return ids.slice(0, count);
+  return [...found.values()];
+}
+
+/** Recent releases by popularity first (up to the recent share), then the rest by vote count. */
+function ordered(candidates: Candidate[], slots: number, recentSince: string): Candidate[] {
+  const recent = candidates.filter((c) => c.date >= recentSince).sort((a, b) => b.popularity - a.popularity).slice(0, Math.round(slots * RECENT_SHARE));
+  const taken = new Set(recent.map((c) => c.id));
+  return [...recent, ...candidates.filter((c) => !taken.has(c.id)).sort((a, b) => b.votes - a.votes)];
+}
+
+const passesGate = (d: MovieDetails) =>
+  !!d.release_date && (d.runtime ?? 0) >= 60 && d.overview.trim().length >= MIN_OVERVIEW_CHARS && d.credits.cast.length > 0;
+
+/** Fetches details in list order until `slots` movies pass the quality gate. Returns them and the untried rest of the list. */
+async function fill(token: string, list: Candidate[], slots: number): Promise<{ kept: MovieDetails[]; rest: Candidate[] }> {
+  const kept: MovieDetails[] = [];
+  let next = 0;
+  while (kept.length < slots && next < list.length) {
+    const batch = list.slice(next, next + Math.ceil((slots - kept.length) * 1.2) + 5);
+    next += batch.length;
+    const details = await mapPool(batch, DETAIL_CONCURRENCY, (c) =>
+      tmdb<MovieDetails>(token, `/movie/${c.id}`, { append_to_response: "credits,keywords", language: "en-US" }).catch(() => null),
+    );
+    for (const d of details) if (d && passesGate(d) && kept.length < slots) kept.push(d);
+  }
+  return { kept, rest: list.slice(next) };
+}
+
+/** Splits `total` slots in proportion to `weights`, largest remainders first. */
+function split(total: number, weights: number[]): number[] {
+  const sum = weights.reduce((a, b) => a + b, 0) || 1;
+  const exact = weights.map((w) => (total * w) / sum);
+  const out = exact.map(Math.floor);
+  const order = exact.map((x, i) => [x - Math.floor(x), i] as const).sort((a, b) => b[0] - a[0]);
+  for (let k = 0; k < total - out.reduce((a, b) => a + b, 0); k++) out[order[k]![1]]!++;
+  return out;
 }
 
 async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
@@ -168,18 +227,40 @@ async function main() {
     if (!token) throw new Error("TMDB_TOKEN is missing. Add it to the repo-root .env file.");
 
     console.log(`Selecting ${COUNT} movies from TMDB`);
-    const recentCount = Math.round(COUNT * RECENT_SHARE);
     const twoYearsAgo = new Date(Date.now() - 2 * 365 * 24 * 3600 * 1000).toISOString().slice(0, 10);
-    const [popular, recent] = await Promise.all([
-      discoverIds(token, COUNT, { sort_by: "vote_count.desc" }),
-      discoverIds(token, recentCount, { sort_by: "popularity.desc", "primary_release_date.gte": twoYearsAgo, "vote_count.gte": 100 }),
-    ]);
-    const ids = [...new Set([...recent, ...popular])].slice(0, COUNT);
-    lap(`${ids.length} IDs (${recent.length} recent, ${popular.length} by vote count, deduplicated)`);
+    const englishSlots = Math.round(COUNT * SHARES.english.share);
+    const indianSlots = Math.round(COUNT * SHARES.indian.share);
+    const worldSlots = COUNT - englishSlots - indianSlots;
 
-    const details = (await mapPool(ids, DETAIL_CONCURRENCY, (id) => tmdb<MovieDetails>(token, `/movie/${id}`, { append_to_response: "credits,keywords", language: "en-US" })))
-      .filter((d) => d.release_date && (d.runtime ?? 0) >= 60);
-    lap(`${details.length} movies with details`);
+    const worldLanguages = (await tmdb<{ iso_639_1: string }[]>(token, "/configuration/languages"))
+      .map((l) => l.iso_639_1)
+      .filter((code) => code !== "en" && code !== "xx" && !INDIAN_LANGUAGES.includes(code));
+    const [english, indianByLanguage, worldByLanguage] = await Promise.all([
+      discoverLanguage(token, "en", SHARES.english.minVotes),
+      mapPool(INDIAN_LANGUAGES, 3, (code) => discoverLanguage(token, code, SHARES.indian.minVotes)),
+      mapPool(worldLanguages, 4, (code) => discoverLanguage(token, code, SHARES.world.minVotes)),
+    ]);
+    const world = worldByLanguage.flat();
+    lap(`Candidates: ${english.length} English, ${indianByLanguage.flat().length} Indian, ${world.length} rest of the world`);
+
+    const englishPick = await fill(token, ordered(english, englishSlots, twoYearsAgo), englishSlots);
+    lap(`English: ${englishPick.kept.length}/${englishSlots}`);
+
+    const indianQuotas = split(indianSlots, indianByLanguage.map((cands) => cands.filter((c) => c.votes >= INDIAN_WEIGHT_VOTES).length));
+    const indianPicks = await mapPool(INDIAN_LANGUAGES.map((_, i) => i), 3, (i) =>
+      fill(token, ordered(indianByLanguage[i]!, indianQuotas[i]!, twoYearsAgo), indianQuotas[i]!),
+    );
+    // A language that runs short passes its slots to the other Indian languages, by vote count.
+    const indianShort = indianSlots - indianPicks.reduce((n, p) => n + p.kept.length, 0);
+    const indianExtra = indianShort > 0 ? await fill(token, indianPicks.flatMap((p) => p.rest).sort((a, b) => b.votes - a.votes), indianShort) : { kept: [] };
+    const indian = [...indianPicks.flatMap((p) => p.kept), ...indianExtra.kept];
+    lap(`Indian: ${indian.length}/${indianSlots} (${INDIAN_LANGUAGES.map((code, i) => `${code} ${indianPicks[i]!.kept.length}/${indianQuotas[i]}`).join(", ")}, ${indianExtra.kept.length} reassigned)`);
+
+    const worldPick = await fill(token, ordered(world, worldSlots, twoYearsAgo), worldSlots);
+    lap(`Rest of the world: ${worldPick.kept.length}/${worldSlots}`);
+
+    const details = [...englishPick.kept, ...indian, ...worldPick.kept];
+    lap(`${details.length} movies passed the quality gate`);
 
     const people: string[] = [];
     const personIndex = new Map<string, number>();
@@ -191,6 +272,7 @@ async function main() {
       id: d.id,
       title: d.title,
       ...(d.original_title !== d.title ? { originalTitle: d.original_title } : {}),
+      language: d.original_language,
       year: Number(d.release_date.slice(0, 4)),
       runtime: d.runtime!,
       genres: d.genres.map((g) => genreId(g.name)),
@@ -199,9 +281,9 @@ async function main() {
       cast: [...d.credits.cast].sort((a, b) => a.order - b.order).slice(0, TOP_CAST).map((c) => ref(c.name)),
       directors: [...new Set(d.credits.crew.filter((c) => c.job === "Director").map((c) => c.name))].map(ref),
     }));
-    const meta: CatalogMeta = { generatedAt: new Date().toISOString(), source: "TMDB", people, movies };
     const synopses = Object.fromEntries(details.map((d) => [d.id, synopsis(d.overview)]));
     const synopsesJson = JSON.stringify(synopses);
+    const meta: CatalogMeta = { generatedAt: new Date().toISOString(), source: "TMDB", people, movies, synopses: { bytes: Buffer.byteLength(synopsesJson) } };
     await writeFile("public/data/catalog-synopses.json", synopsesJson);
     lap(`Wrote catalog-synopses.json (${(synopsesJson.length / 1024).toFixed(0)} KB)`);
     const writeMeta = async () => {

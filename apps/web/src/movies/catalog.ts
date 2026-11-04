@@ -10,6 +10,8 @@ export interface Movie {
   directors: string[];
   originalTitle?: string;
   votes?: number;
+  /** TMDB original language code ("en", "hi", "ta"). */
+  language?: string;
 }
 
 /** Shape of public/data/catalog-meta.json, written by scripts/seed.ts. People are stored once and referenced by index. */
@@ -20,6 +22,8 @@ export interface CatalogMeta {
   movies: (Omit<Movie, "cast" | "directors"> & { cast: number[]; directors: number[] })[];
   /** The vector file that matches this metadata, in the same movie order. Missing after a dry run. */
   vectors?: { file: string; dimensions: number };
+  /** Size of catalog-synopses.json in bytes, for the loading progress bar. */
+  synopses?: { bytes: number };
 }
 
 export function hydrateCatalog(meta: CatalogMeta): Movie[] {
