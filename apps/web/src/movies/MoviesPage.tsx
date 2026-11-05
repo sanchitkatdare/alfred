@@ -1,5 +1,5 @@
 import { decideRoute, parse, type Chip, type ParserConfig } from "@alfred/agent-harness";
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { flushSync } from "react-dom";
 import tmdbLogo from "../../../../assets/tmdb.svg";
 import { createEmbedClient } from "./api";
@@ -31,7 +31,6 @@ const EXAMPLES = [
   "mind-bending villeneuve film",
   "the one where a man tattoos clues on his body",
   "movie above 7 that does not have horror",
-  "plan a movie night for me and a friend who hates horror",
 ];
 
 const KIND_LABEL: Record<string, string> = {
@@ -357,9 +356,13 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
           {devMode && (
             <ol className="pipeline" aria-label="Stages used">
               {pipelineStages(dev.entries.find((e) => e.kind !== "load" && e.title.trim() === query.trim()) ?? null, parseMs).map((stage) => (
-                <li key={stage.id} className={`stage-${stage.id}${stage.ran ? " ran" : ""}`} title={stage.hint}>
+                <li key={stage.id} className={`stage-${stage.id}${stage.ran ? " ran" : ""}`} tabIndex={0} aria-describedby={`stage-pop-${stage.id}`}>
                   <span>{stage.label}</span>
                   <span className="pipeline-ms">{stage.ran ? stage.time : "not used"}</span>
+                  <span className="stage-pop" id={`stage-pop-${stage.id}`} role="tooltip">
+                    <span className="flow">{stage.flow.map((step, i) => <Fragment key={i}>{i > 0 && <span className="arrow" aria-label="then">→</span>}<span className="step">{step}</span></Fragment>)}</span>
+                    <span className="note">{stage.note}</span>
+                  </span>
                 </li>
               ))}
             </ol>

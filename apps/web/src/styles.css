@@ -215,6 +215,17 @@ p { margin: 0; }
 .pipeline li.stage-rules.ran::before { background: var(--local); border-color: var(--local); }
 .pipeline li.stage-search.ran::before { background: var(--semantic); border-color: var(--semantic); }
 .pipeline li.stage-assistant.ran::before { background: var(--llm); border-color: var(--llm); }
+/* Stage popup on hover, focus or tap: the stage as steps with arrows, then where it runs. */
+.pipeline { position: relative; }
+.stage-pop { position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 5; display: none; gap: 8px; width: max-content; max-width: min(340px, 100%); padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 8px 24px rgb(0 0 0 / 0.18); color: var(--fg); cursor: default; }
+.pipeline li:hover .stage-pop, .pipeline li:focus .stage-pop { display: grid; }
+.stage-pop .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.stage-pop .step { padding: 2px 8px; border-radius: 6px; background: var(--sunken); font-weight: 600; white-space: nowrap; }
+.stage-pop .arrow { color: var(--muted); }
+.stage-rules .stage-pop .step { background: var(--local-bg); color: var(--local); }
+.stage-search .stage-pop .step { background: var(--semantic-bg); color: var(--semantic); }
+.stage-assistant .stage-pop .step { background: var(--llm-bg); color: var(--llm); }
+.stage-pop .note { font-size: 12px; color: var(--muted); }
 
 .score { display: flex; height: 5px; border-radius: 3px; overflow: hidden; background: var(--line); }
 .score-meaning { background: var(--semantic); }
