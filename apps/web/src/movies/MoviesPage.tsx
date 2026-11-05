@@ -15,7 +15,7 @@ import { chipsToSearchHints } from "./hints";
 import { byRating, filterCatalog } from "./tools";
 import { useWatched } from "./useWatched";
 import { wordSegments } from "./highlight";
-import { pipelineStages } from "./pipeline";
+import { pipelineStages, type PipelineStage } from "./pipeline";
 import { ResultsPanel } from "./ResultsPanel";
 import { decideAppRoute, startsNewSearch, type AppRoute } from "./routing";
 import { useAssistantConversation } from "./useAssistantConversation";
@@ -353,20 +353,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
             </div>
             <button type="submit" className="btn" disabled={!dataReady || busy || decision.route === "empty"}>{busy ? "Working…" : "Search"}</button>
           </div>
-          {devMode && (
-            <ol className="pipeline" aria-label="Stages used">
-              {pipelineStages(dev.entries.find((e) => e.kind !== "load" && e.title.trim() === query.trim()) ?? null, parseMs).map((stage) => (
-                <li key={stage.id} className={`stage-${stage.id}${stage.ran ? " ran" : ""}`} tabIndex={0} aria-describedby={`stage-pop-${stage.id}`}>
-                  <span>{stage.label}</span>
-                  <span className="pipeline-ms">{stage.ran ? stage.time : "not used"}</span>
-                  <span className="stage-pop" id={`stage-pop-${stage.id}`} role="tooltip">
-                    <span className="flow">{stage.flow.map((step, i) => <Fragment key={i}>{i > 0 && <span className="arrow" aria-label="then">→</span>}<span className="step">{step}</span></Fragment>)}</span>
-                    <span className="note">{stage.note}</span>
-                  </span>
-                </li>
-              ))}
-            </ol>
-          )}
+          {devMode && <Pipeline stages={pipelineStages(dev.entries.find((e) => e.kind !== "load" && e.title.trim() === query.trim()) ?? null, parseMs)} />}
           {query.length >= MAX_QUERY_CHARS - 50 && <span className="note counter">{query.length}/{MAX_QUERY_CHARS} characters</span>}
         </form>
         </div>
@@ -419,6 +406,24 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
   );
 }
 
+/** Dev mode: the stages used for the current text, each with a popup that shows its steps. */
+function Pipeline({ stages }: { stages: PipelineStage[] }) {
+  return (
+    <ol className="pipeline" aria-label="Stages used">
+      {stages.map((stage) => (
+        <li key={stage.id} className={`stage-${stage.id}${stage.ran ? " ran" : ""}`} tabIndex={0} aria-describedby={`stage-pop-${stage.id}`}>
+          <span>{stage.label}</span>
+          <span className="pipeline-ms">{stage.ran ? stage.time : "not used"}</span>
+          <span className="stage-pop" id={`stage-pop-${stage.id}`} role="tooltip">
+            <span className="flow">{stage.flow.map((step, i) => <Fragment key={i}>{i > 0 && <span className="arrow" aria-label="then">→</span>}<span className="step">{step}</span></Fragment>)}</span>
+            <span className="note">{stage.note}</span>
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 /** The home screen while the metadata downloads: same layout as MovieSearch, search bar disabled. */
 function LoadingSearch({ devMode, onToggleDev }: { devMode: boolean; onToggleDev(): void }) {
   return (
@@ -447,6 +452,7 @@ function LoadingSearch({ devMode, onToggleDev }: { devMode: boolean; onToggleDev
                   </div>
                   <button type="button" className="btn" disabled>Search</button>
                 </div>
+                {devMode && <Pipeline stages={pipelineStages(null, 0)} />}
               </div>
             </div>
           </section>

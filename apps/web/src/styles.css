@@ -124,6 +124,8 @@ p { margin: 0; }
 .btn { border: 1.5px solid var(--fg); background: var(--fg); color: var(--bg); border-radius: 8px; padding: 0 16px; min-height: 46px; font-weight: 600; }
 .btn.ghost { background: transparent; color: var(--fg); border-color: var(--line); }
 .btn:disabled { opacity: 0.55; cursor: progress; }
+/* Fixed width: the Search button keeps its size, and the input its width, when the web font replaces the fallback. */
+.qrow .btn { min-width: 88px; }
 .counter { justify-self: end; }
 .actions { display: flex; gap: 8px; }
 .assistant { display: grid; gap: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 16px; background: var(--llm-bg); }
