@@ -1,7 +1,7 @@
 import type { AgentResult, ChatMessage } from "@alfred/agent-harness";
 import { useRef, useState, type RefObject } from "react";
 import { friendlyError } from "./api";
-import { describeEvent, timelineItem, type Turn } from "./AssistantPanel";
+import { answerPicks, describeEvent, timelineItem, type Turn } from "./AssistantPanel";
 import { isTimeout, QUESTION_LIMIT_MS, timeoutMessage, type AskOptions } from "./assistant";
 import { devItemFor, type DevLog } from "./devlog";
 import type { SearchHints } from "./hints";
@@ -20,10 +20,11 @@ export function useAssistantConversation(ask: (question: string, options: AskOpt
     const id = nextTurnId.current++;
     const update = (change: (t: Turn) => Turn) => setTurns((all) => all.map((t) => (t.id === id ? change(t) : t)));
     const note = tier === "oracle" ? `Oracle can take up to ${QUESTION_LIMIT_MS.oracle / 1000} s. Stop ends it early.` : undefined;
-    setTurns((all) => [...all, { id, question, note, timeline: [], steps: [], status: "running" }]);
+    setTurns((all) => [...all, { id, question, tier, note, timeline: [], steps: [], status: "running" }]);
     const toolStarts = new Map<string, { name: string; at: number }>();
     let lastEventAt = performance.now();
     let found: { title: string; year: number }[] = [];
+    const seen = new Map<number, { id: number; title: string }>();
     abort.current = new AbortController();
     const entry = dev.start("assistant", question);
     currentEntry.current = entry;
@@ -35,8 +36,9 @@ export function useAssistantConversation(ask: (question: string, options: AskOpt
         tier,
         signal: abort.current.signal,
         onEvent: (e) => {
-          const movies = e.type === "tool_result" ? (e.result as { movies?: { title: string; year: number }[] }).movies : undefined;
+          const movies = e.type === "tool_result" ? (e.result as { movies?: { id: number; title: string; year: number }[] }).movies : undefined;
           if (movies?.length) found = movies;
+          for (const m of movies ?? []) seen.set(m.id, m);
           lastEventAt = performance.now();
           const item = timelineItem(e, lastEventAt, toolStarts);
           if (item) update((t) => ({ ...t, timeline: [...t.timeline, item] }));
@@ -54,7 +56,8 @@ export function useAssistantConversation(ask: (question: string, options: AskOpt
       }
       if (result.status === "done") {
         history.current = result.transcript.filter((m) => m.role !== "system");
-        update((t) => ({ ...t, status: "done", answer: result.message?.content || "(no answer)" }));
+        const answer = result.message?.content || "(no answer)";
+        update((t) => ({ ...t, status: "done", answer, picks: answerPicks(answer, [...seen.values()]) }));
       } else if (isTimeout(result)) {
         update((t) => ({ ...t, status: "failed", error: timeoutMessage(found) }));
       } else {

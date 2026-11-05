@@ -19,6 +19,8 @@ const formatRuntime = (min: number) => `${Math.floor(min / 60)}h${min % 60 ? ` $
 interface ResultsPanelProps {
   /** Results of search by meaning for the current query; null shows the live filter results. */
   semantic: SemanticResult | null;
+  /** Set when the list shows the movies the assistant's answer names. */
+  picksBy?: "Alfred" | "Oracle";
   matchCount: number;
   catalogSize: number;
   movies: Movie[];
@@ -34,7 +36,7 @@ interface ResultsPanelProps {
   onClear(): void;
 }
 
-export function ResultsPanel({ semantic, matchCount, catalogSize, movies, synopses, busy, searchError, hiddenWatched, watchedMovies, onOracle, onDismissError, onMark, onUnmark, onClear }: ResultsPanelProps) {
+export function ResultsPanel({ semantic, picksBy, matchCount, catalogSize, movies, synopses, busy, searchError, hiddenWatched, watchedMovies, onOracle, onDismissError, onMark, onUnmark, onClear }: ResultsPanelProps) {
   // Accordion: only the clicked movie shows its details.
   const [openId, setOpenId] = useState<number | null>(null);
   const scores = semantic?.scores;
@@ -42,10 +44,10 @@ export function ResultsPanel({ semantic, matchCount, catalogSize, movies, synops
   return (
     <div className="panel">
       <div className="panel-head">
-        <h2>{semantic ? "Best matches by meaning" : "Results"}</h2>
-        {semantic ? <span className="note">ranked in {semantic.ms} ms</span> : matchCount < catalogSize && <span className="note">{matchCount} {matchCount === 1 ? "match" : "matches"}</span>}
+        <h2>{picksBy ? `${picksBy}'s picks` : semantic ? "Best matches by meaning" : "Results"}</h2>
+        {picksBy ? null : semantic ? <span className="note">ranked in {semantic.ms} ms</span> : matchCount < catalogSize && <span className="note">{matchCount} {matchCount === 1 ? "match" : "matches"}</span>}
       </div>
-      {semantic && (
+      {(semantic || picksBy === "Alfred") && (
         <button type="button" className="linkish oracle" disabled={busy} onClick={onOracle} title={`Sends your request to Gemma, Google's open model, on Cloudflare Workers AI. Slower: up to ${QUESTION_LIMIT_MS.oracle / 1000} s.`}>
           No, Alfred, not what I wanted. Ask Oracle instead
         </button>

@@ -253,9 +253,14 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
 
   const route = ROUTES[decision.route];
   const showSemantic = semantic?.key === searchKey(query, chips);
-  const shown = showSemantic ? semantic!.movies.filter((m) => !watched.has(m.id)) : live.movies.slice(0, 10);
+  // After the assistant answers this text, the list shows the movies its answer names.
+  const lastTurn = turns.at(-1);
+  const picks = lastTurn?.status === "done" && lastTurn.picks?.length && lastTurn.question === query.trim() ? lastTurn.picks : null;
+  const shown = picks
+    ? picks.map((id) => byId.get(id)).filter((m): m is Movie => !!m && !watched.has(m.id))
+    : showSemantic ? semantic!.movies.filter((m) => !watched.has(m.id)) : live.movies.slice(0, 10);
   // Results show once the query has a chip or filter, or after a search by meaning; free text alone is not a filter.
-  const showResults = !!query.trim() && (chips.length > 0 || !!lookup || !!followUp || showSemantic);
+  const showResults = !!query.trim() && (chips.length > 0 || !!lookup || !!followUp || showSemantic || !!picks);
   // The layout follows what is on screen: nothing to show centers the composer (home), anything else pins it to the bottom.
   const home = !showResults && !searchError && !turns.length && !running && !lookup;
   const [layoutHome, setLayoutHome] = useState(home);
@@ -352,7 +357,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
           {devMode && (
             <ol className="pipeline" aria-label="Stages used">
               {pipelineStages(dev.entries.find((e) => e.kind !== "load" && e.title.trim() === query.trim()) ?? null, parseMs).map((stage) => (
-                <li key={stage.id} className={`stage-${stage.id}${stage.ran ? " ran" : ""}`}>
+                <li key={stage.id} className={`stage-${stage.id}${stage.ran ? " ran" : ""}`} title={stage.hint}>
                   <span>{stage.label}</span>
                   <span className="pipeline-ms">{stage.ran ? stage.time : "not used"}</span>
                 </li>
@@ -372,11 +377,10 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
         )}
         {lookup && !lookupText && <p className="note">Press Enter to show the story. No AI involved.</p>}
 
-        <AssistantPanel turns={turns} running={running} devMode={devMode} onStop={stop} onReset={resetConversation} />
-
         {(showResults || searchError) && <div className="grid">
           <ResultsPanel
-            semantic={showSemantic ? semantic : null}
+            semantic={showSemantic && !picks ? semantic : null}
+            picksBy={picks ? (lastTurn!.tier === "oracle" ? "Oracle" : "Alfred") : undefined}
             matchCount={live.movies.length}
             catalogSize={catalog.length}
             movies={shown}
@@ -392,6 +396,9 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
             onClear={clear}
           />
         </div>}
+
+        {/* The conversation sits below the list, next to the input it answers. */}
+        <AssistantPanel turns={turns} running={running} devMode={devMode} onStop={stop} onReset={resetConversation} />
         </>}
       </section>
 

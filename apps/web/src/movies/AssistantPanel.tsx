@@ -34,6 +34,9 @@ export function timelineItem(event: AgentEvent, now: number, starts: Map<string,
 export interface Turn {
   id: number;
   question: string;
+  tier: "default" | "oracle";
+  /** Movies from the tool results that the answer names, in answer order. The results list shows them. */
+  picks?: number[];
   /** Shown from the start of the turn, for example how long Oracle can take. */
   note?: string;
   timeline: TimelineItem[];
@@ -41,6 +44,18 @@ export interface Turn {
   status: "running" | "done" | "failed";
   answer?: string;
   error?: string;
+}
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Movies the answer names, in the order it names them. Titles match case-sensitively as whole words ("Up", not "up"). */
+export function answerPicks(answer: string, found: { id: number; title: string }[]): number[] {
+  const at = new Map<number, number>();
+  for (const m of found) {
+    const i = answer.search(new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(m.title)}($|[^\\p{L}\\p{N}])`, "u"));
+    if (i >= 0 && !at.has(m.id)) at.set(m.id, i);
+  }
+  return [...at].sort((a, b) => a[1] - b[1]).map(([id]) => id);
 }
 
 /** One line in the visible trace for each harness event. */
