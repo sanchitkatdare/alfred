@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { QUESTION_LIMIT_MS } from "./assistant";
 import type { Movie } from "./catalog";
 import type { SemanticResult } from "./useSemanticSearch";
@@ -34,13 +35,15 @@ interface ResultsPanelProps {
 }
 
 export function ResultsPanel({ semantic, matchCount, catalogSize, movies, synopses, busy, searchError, hiddenWatched, watchedMovies, onOracle, onDismissError, onMark, onUnmark, onClear }: ResultsPanelProps) {
+  // Accordion: only the clicked movie shows its details.
+  const [openId, setOpenId] = useState<number | null>(null);
   const scores = semantic?.scores;
   const maxScore = Math.max(0.01, ...Object.values(scores ?? {}).map((s) => s.similarity + s.bonus));
   return (
     <div className="panel">
       <div className="panel-head">
         <h2>{semantic ? "Best matches by meaning" : "Results"}</h2>
-        <span className="note">{semantic ? `ranked in ${semantic.ms} ms` : `${matchCount} of ${catalogSize} match`}</span>
+        {semantic ? <span className="note">ranked in {semantic.ms} ms</span> : matchCount < catalogSize && <span className="note">{matchCount} {matchCount === 1 ? "match" : "matches"}</span>}
       </div>
       {semantic && (
         <button type="button" className="linkish oracle" disabled={busy} onClick={onOracle} title={`Sends your request to Gemma, Google's open model, on Cloudflare Workers AI. Slower: up to ${QUESTION_LIMIT_MS.oracle / 1000} s.`}>
@@ -54,15 +57,24 @@ export function ResultsPanel({ semantic, matchCount, catalogSize, movies, synops
         </p>
       )}
       <ul className="results">
-        {movies.map((movie) => (
-          <li key={movie.id}>
-            <span className="t">{movie.title}</span>
-            <button type="button" className="w" onClick={() => onMark(movie.id)}>Mark watched</button>
-            <span className="m">{movie.year} · {formatRuntime(movie.runtime)} · ★ {movie.rating.toFixed(1)} · {movie.genres.join(", ")}</span>
-            {scores?.[movie.id] && <ScoreBar score={scores[movie.id]!} max={maxScore} />}
-            {synopses[movie.id] && <span className="syn">{synopses[movie.id]}</span>}
-          </li>
-        ))}
+        {movies.map((movie) => {
+          const open = openId === movie.id;
+          return (
+            <li key={movie.id} className={open ? "open" : undefined}>
+              <button type="button" className="row" aria-expanded={open} aria-controls={`movie-${movie.id}`} onClick={() => setOpenId(open ? null : movie.id)}>
+                <span className="t">{movie.title}</span>
+                {scores?.[movie.id] && <ScoreBar score={scores[movie.id]!} max={maxScore} />}
+              </button>
+              {open && (
+                <div className="more" id={`movie-${movie.id}`}>
+                  <span className="m">{movie.year} · {formatRuntime(movie.runtime)} · ★ {movie.rating.toFixed(1)} · {movie.genres.join(", ")}</span>
+                  {synopses[movie.id] && <span className="syn">{synopses[movie.id]}</span>}
+                  <button type="button" className="w" onClick={() => onMark(movie.id)}>Mark watched</button>
+                </div>
+              )}
+            </li>
+          );
+        })}
         {!movies.length && <li><span className="empty">No movie matches these filters.</span></li>}
       </ul>
       {hiddenWatched > 0 && <p className="note">{hiddenWatched} hidden because you marked them watched.</p>}

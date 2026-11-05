@@ -1,5 +1,6 @@
 import { decideRoute, parse, type Chip, type ParserConfig } from "@alfred/agent-harness";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { flushSync } from "react-dom";
 import tmdbLogo from "../../../../assets/tmdb.svg";
 import { createEmbedClient } from "./api";
 import { DevPanel } from "./DevPanel";
@@ -234,14 +235,11 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
     setText(query.replace(new RegExp(`${escaped}\\s*$`, "i"), `${s.to} `));
     inputRef.current?.focus();
   };
-  // Before the first search the page shows only the centered composer (home). Examples show at home and whenever the input is empty.
-  const [submitted, setSubmitted] = useState(false);
   const busy = searching || running;
   const askAssistant = (tier?: "oracle") => runAssistant(query, chipsToSearchHints(chips), logRules, tier);
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (busy) return;
-    setSubmitted(true);
     // Touch screens: close the keyboard so the answer has room.
     if (matchMedia("(pointer: coarse)").matches) inputRef.current?.blur();
     if (startsNewSearch(query, ignoreFollowUp)) {
@@ -256,12 +254,23 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
   const route = ROUTES[decision.route];
   const showSemantic = semantic?.key === searchKey(query, chips);
   const shown = showSemantic ? semantic!.movies.filter((m) => !watched.has(m.id)) : live.movies.slice(0, 10);
+  // Results show once the query has a chip or filter, or after a search by meaning; free text alone is not a filter.
+  const showResults = !!query.trim() && (chips.length > 0 || !!lookup || !!followUp || showSemantic);
+  // The layout follows what is on screen: nothing to show centers the composer (home), anything else pins it to the bottom.
+  const home = !showResults && !searchError && !turns.length && !running && !lookup;
+  const [layoutHome, setLayoutHome] = useState(home);
+  useEffect(() => {
+    if (home === layoutHome) return;
+    // Animate the change: the browser morphs the title and the search form between their two places.
+    const doc = document as Document & { startViewTransition?(update: () => void): unknown };
+    if (doc.startViewTransition && !matchMedia("(prefers-reduced-motion: reduce)").matches) doc.startViewTransition(() => flushSync(() => setLayoutHome(home)));
+    else setLayoutHome(home);
+  }, [home, layoutHome]);
 
   return (
     <main className={`page${devMode ? " with-dev" : ""}`}>
       <header className="head">
         <div className="head-row">
-          {submitted && <h1>Alfred, Movies!</h1>}
           <button type="button" className="btn ghost dev-toggle" aria-pressed={devMode} onClick={onToggleDev}>
             Dev mode: {devMode ? "on" : "off"}
           </button>
@@ -270,9 +279,14 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
 
       <div className="layout">
       <div className="main-col">
-      <section className={`sim${submitted ? "" : " home"}`} aria-label="Movie search">
-        {!submitted && <h1 className="home-title">Alfred, Movies!</h1>}
+      <section className={`sim${layoutHome ? " home" : ""}`} aria-label="Movie search">
+        {/* The title stays in the search column in both layouts, so it moves only up and down. */}
+        {!layoutHome && <h1 className="page-title">Alfred, Movies!</h1>}
         <div className="composer">
+        <div className="above">
+        {layoutHome && <h1 className="home-title">Alfred, Movies!</h1>}
+        {/* One slot above the input in both states: examples while the input is empty, chips once it has text. */}
+        {query.trim() ? (
         <div className="understood">
           <div className="chips" aria-live="polite">
             {chips.map((c) => {
@@ -310,7 +324,15 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
             )}
           </div>
         </div>
-
+        ) : (
+          <div className="examples">
+            <span className="eyebrow">Examples</span>
+            {EXAMPLES.map((ex) => (
+              <button key={ex} type="button" className="ex" disabled={!dataReady} onClick={() => setText(ex)}>{ex}</button>
+            ))}
+          </div>
+        )}
+        </div>
         <form className="qbox" onSubmit={onSubmit}>
           <label htmlFor="q">Ask for a movie</label>
           <div className="qrow">
@@ -339,17 +361,9 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
           )}
           {query.length >= MAX_QUERY_CHARS - 50 && <span className="note counter">{query.length}/{MAX_QUERY_CHARS} characters</span>}
         </form>
-        {(!submitted || !query.trim()) && (
-          <div className="examples">
-            <span className="eyebrow">Examples</span>
-            {EXAMPLES.map((ex) => (
-              <button key={ex} type="button" className="ex" disabled={!dataReady} onClick={() => setText(ex)}>{ex}</button>
-            ))}
-          </div>
-        )}
         </div>
 
-        {submitted && <>
+        {!layoutHome && <>
         {lookup && lookupText && (
           <section className="lookup-answer" aria-live="polite">
             <p>{lookupText.text}</p>
@@ -360,7 +374,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
 
         <AssistantPanel turns={turns} running={running} devMode={devMode} onStop={stop} onReset={resetConversation} />
 
-        <div className="grid">
+        {(showResults || searchError) && <div className="grid">
           <ResultsPanel
             semantic={showSemantic ? semantic : null}
             matchCount={live.movies.length}
@@ -377,7 +391,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
             onUnmark={unmark}
             onClear={clear}
           />
-        </div>
+        </div>}
         </>}
       </section>
 
@@ -407,8 +421,14 @@ function LoadingSearch({ devMode, onToggleDev }: { devMode: boolean; onToggleDev
       <div className="layout">
         <div className="main-col">
           <section className="sim home" aria-label="Movie search" aria-busy="true">
-            <h1 className="home-title">Alfred, Movies!</h1>
             <div className="composer">
+              <div className="above">
+                <h1 className="home-title">Alfred, Movies!</h1>
+                <div className="examples">
+                  <span className="eyebrow">Examples</span>
+                  {EXAMPLES.map((ex) => <button key={ex} type="button" className="ex" disabled>{ex}</button>)}
+                </div>
+              </div>
               <div className="qbox">
                 <div className="qrow">
                   <div className="qinput">
@@ -417,10 +437,6 @@ function LoadingSearch({ devMode, onToggleDev }: { devMode: boolean; onToggleDev
                   </div>
                   <button type="button" className="btn" disabled>Search</button>
                 </div>
-              </div>
-              <div className="examples">
-                <span className="eyebrow">Examples</span>
-                {EXAMPLES.map((ex) => <button key={ex} type="button" className="ex" disabled>{ex}</button>)}
               </div>
             </div>
           </section>
