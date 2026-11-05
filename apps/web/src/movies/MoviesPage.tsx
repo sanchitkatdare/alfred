@@ -34,7 +34,7 @@ const EXAMPLES = [
 ];
 
 const KIND_LABEL: Record<string, string> = {
-  genre: "genre", actor: "actor", director: "director", runtime: "runtime", year: "year",
+  genre: "genre", language: "language", actor: "actor", director: "director", runtime: "runtime", year: "year",
   rating: "rating", similar: "like", task: "task", user: "my data",
 };
 

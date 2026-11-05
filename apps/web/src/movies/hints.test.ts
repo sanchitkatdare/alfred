@@ -34,4 +34,10 @@ describe("mergeSearchHints", () => {
   it("uses hint numbers over model numbers", () => {
     expect(mergeSearchHints({ minRating: 6 }, { minRating: 7 })).toEqual({ minRating: 7 });
   });
+
+  it("uses the user's languages instead of the model's, and keeps the model's when the user named none", () => {
+    expect(mergeSearchHints({ languages: ["en"] }, { languages: ["hi"] })).toEqual({ languages: ["hi"] });
+    expect(mergeSearchHints({ languages: ["hi"] }, {})).toEqual({ languages: ["hi"] });
+    expect(mergeSearchHints({ languages: ["hi", "ta"] }, { excludeLanguages: ["hi"] })).toEqual({ languages: ["ta"], excludeLanguages: ["hi"] });
+  });
 });

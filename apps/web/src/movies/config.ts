@@ -39,6 +39,35 @@ const GENRES: { id: string; label: string; aliases: string[] }[] = [
 /** All 19 TMDB genre IDs, in the form stored in the catalog. */
 export const GENRE_IDS = GENRES.map((g) => g.id);
 
+/** Original languages (TMDB codes, as the seed stores them), with film-industry names. "indian" covers all 9 Indian languages. */
+const INDIAN_LANGUAGES = ["hi", "ta", "te", "ml", "kn", "bn", "mr", "pa", "gu"];
+const LANGUAGES: { id: string; label: string; aliases: string[]; codes?: string[] }[] = [
+  { id: "hi", label: "Hindi", aliases: ["bollywood"] },
+  { id: "ta", label: "Tamil", aliases: ["kollywood"] },
+  { id: "te", label: "Telugu", aliases: ["tollywood"] },
+  { id: "ml", label: "Malayalam", aliases: ["mollywood"] },
+  { id: "kn", label: "Kannada", aliases: ["sandalwood"] },
+  { id: "bn", label: "Bengali", aliases: ["bangla"] },
+  { id: "mr", label: "Marathi", aliases: [] },
+  { id: "pa", label: "Punjabi", aliases: [] },
+  { id: "gu", label: "Gujarati", aliases: [] },
+  { id: "indian", label: "Indian", aliases: [], codes: INDIAN_LANGUAGES },
+  { id: "en", label: "English", aliases: [] },
+  { id: "ko", label: "Korean", aliases: [] },
+  { id: "ja", label: "Japanese", aliases: [] },
+  { id: "zh", label: "Chinese", aliases: ["mandarin"] },
+  { id: "fr", label: "French", aliases: [] },
+  { id: "es", label: "Spanish", aliases: [] },
+  { id: "it", label: "Italian", aliases: [] },
+  { id: "de", label: "German", aliases: [] },
+];
+
+/** Language codes the filters accept. */
+export const LANGUAGE_CODES = [...INDIAN_LANGUAGES, "en", "ko", "ja", "zh", "fr", "es", "it", "de"];
+
+/** The codes one language chip stands for: its own code, or all Indian codes for "indian". */
+export const languageCodes = (chipId: string) => LANGUAGES.find((l) => l.id === chipId)?.codes ?? [chipId];
+
 /** Surnames that are also English words. They match only as part of a full name. */
 const COMMON_WORDS = [
   "stone", "hill", "king", "wood", "young", "hunt", "bell", "fox", "day", "hardy", "grant", "blunt", "bale", "page", "moss", "ledger", "foster", "wright",
@@ -259,7 +288,7 @@ export function buildMovieParserConfig(catalog: Movie[]): ParserConfig {
 
   return {
     dictionary: buildDictionary({
-      terms: GENRES.map((g) => ({ kind: "genre", ...g })),
+      terms: [...GENRES.map((g) => ({ kind: "genre", ...g })), ...LANGUAGES.map(({ id, label, aliases }) => ({ kind: "language", id, label, aliases }))],
       people: [...counts.values()],
       // A surname alone does not match when it is a common word or appears in any title ("story", "potter", "knight").
       commonWords: [...COMMON_WORDS, ...titleWords(catalog)],

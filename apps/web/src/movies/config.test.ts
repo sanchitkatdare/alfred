@@ -210,3 +210,33 @@ describe("end to end: chips, route and results", () => {
     expect(filtered("pacino crime", new Set([heat.id])).map((m) => m.title)).not.toContain("Heat");
   });
 });
+
+describe("languages", () => {
+  it.each([
+    ["bollywood drama on a ship", ["language:Hindi", "genre:Drama"]],
+    ["tamil thriller", ["language:Tamil", "genre:Thriller"]],
+    ["tollywood action", ["language:Telugu", "genre:Action"]],
+    ["korean horror", ["language:Korean", "genre:Horror"]],
+    ["not hindi", ["!language:Hindi"]],
+  ])("%s", (q, chips) => {
+    expect(chipsOf(q)).toEqual(chips);
+  });
+
+  it("'indian' stands for all nine Indian languages", () => {
+    expect(chipsToSearchHints(parse("indian comedy", config).chips).languages).toEqual(["hi", "ta", "te", "ml", "kn", "bn", "mr", "pa", "gu"]);
+  });
+
+  it("filters by original language: any listed language matches, excluded ones never do", () => {
+    const base = SAMPLE_CATALOG[0]!;
+    const movies = [
+      { ...base, id: 1, title: "A", language: "hi" },
+      { ...base, id: 2, title: "B", language: "ta" },
+      { ...base, id: 3, title: "C", language: "en" },
+      { ...base, id: 4, title: "D" },
+    ];
+    const titles = (q: string) => filterCatalog(movies, chipsToSearchHints(parse(q, config).chips), new Set()).map((m) => m.title);
+    expect(titles("bollywood")).toEqual(["A"]);
+    expect(titles("indian")).toEqual(["A", "B"]);
+    expect(titles("not hindi")).toEqual(["B", "C", "D"]);
+  });
+});

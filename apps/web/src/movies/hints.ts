@@ -1,9 +1,13 @@
 import type { Chip } from "@alfred/agent-harness";
+import { languageCodes } from "./config";
 
 /** Hard filters taken from the user's own words by the rule parser. */
 export interface SearchHints {
   genres?: string[];
   excludeGenres?: string[];
+  /** Original language codes; a movie in any of them matches. */
+  languages?: string[];
+  excludeLanguages?: string[];
   people?: string[];
   excludePeople?: string[];
   minRating?: number;
@@ -23,6 +27,11 @@ export function chipsToSearchHints(chips: Chip[]): SearchHints {
     if (c.kind === "genre") {
       if (c.negate) h.excludeGenres = push(h.excludeGenres, c.id);
       else h.genres = push(h.genres, c.id);
+    } else if (c.kind === "language") {
+      for (const code of languageCodes(c.id)) {
+        if (c.negate) h.excludeLanguages = push(h.excludeLanguages, code);
+        else h.languages = push(h.languages, code);
+      }
     } else if (c.kind === "actor" || c.kind === "director") {
       if (c.negate) h.excludePeople = push(h.excludePeople, c.id);
       else h.people = push(h.people, c.id);
@@ -42,7 +51,7 @@ export function chipsToSearchHints(chips: Chip[]): SearchHints {
 /**
  * Applies hints on top of the model's arguments. Lists are merged; numbers from the hints win,
  * because they come from the user's words. A genre or person cannot be both required and excluded:
- * the hint decides.
+ * the hint decides. Languages are "any of", so the user's languages replace the model's.
  */
 export function mergeSearchHints<A extends SearchHints>(args: A, hints: SearchHints): A {
   const out: A = { ...args };
@@ -53,6 +62,8 @@ export function mergeSearchHints<A extends SearchHints>(args: A, hints: SearchHi
   out.excludeGenres = without(union(args.excludeGenres, hints.excludeGenres), hints.genres);
   out.people = without(union(args.people, hints.people), hints.excludePeople);
   out.excludePeople = without(union(args.excludePeople, hints.excludePeople), hints.people);
+  out.languages = without(hints.languages ?? args.languages, hints.excludeLanguages);
+  out.excludeLanguages = without(union(args.excludeLanguages, hints.excludeLanguages), hints.languages);
   for (const k of ["minRating", "minRuntime", "maxRuntime", "yearFrom", "yearTo"] as const) {
     if (hints[k] !== undefined) out[k] = hints[k] as A[typeof k];
   }

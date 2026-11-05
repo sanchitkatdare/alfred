@@ -1,7 +1,7 @@
 import { createToolRegistry, defineTool, toKey, type Tool, type ToolSpec } from "@alfred/agent-harness";
 import { z } from "zod";
 import type { Movie } from "./catalog";
-import { GENRE_IDS } from "./config";
+import { GENRE_IDS, LANGUAGE_CODES } from "./config";
 import { mergeSearchHints, type SearchHints } from "./hints";
 
 export interface MovieStory {
@@ -26,12 +26,15 @@ export interface MovieToolContext {
 }
 
 const genre = z.enum(GENRE_IDS as [string, ...string[]]);
+const language = z.enum(LANGUAGE_CODES as [string, ...string[]]);
 
 const searchSchema = z.object({
   title: z.string().min(1).max(100).optional().describe("Part of a title, e.g. 'memento'. Use it to find a movie the user names. Title searches include watched movies."),
   query: z.string().max(200).optional().describe("Free text for themes, plot elements or mood, e.g. 'dream heist' or 'feel-good'. Omit for filter-only searches."),
   genres: z.array(genre).max(5).optional().describe("Every listed genre must match."),
   excludeGenres: z.array(genre).max(5).optional(),
+  languages: z.array(language).max(9).optional().describe("Original language; any listed one matches. hi = Hindi (Bollywood), ta = Tamil, te = Telugu, ml = Malayalam, kn = Kannada, bn = Bengali, mr = Marathi, pa = Punjabi, gu = Gujarati. For 'Indian' list all nine."),
+  excludeLanguages: z.array(language).max(9).optional(),
   people: z.array(z.string().min(2)).max(4).optional().describe("Actor or director names. Every listed person must appear."),
   excludePeople: z.array(z.string().min(2)).max(4).optional(),
   minRating: z.number().min(0).max(10).optional().describe("TMDB rating out of 10."),
@@ -71,6 +74,8 @@ export function filterCatalog(catalog: Movie[], a: SearchArgs, watched: Readonly
     (!title || toKey(m.title).includes(title) || toKey(m.originalTitle ?? "").includes(title)) &&
     (a.genres ?? []).every((g) => m.genres.includes(g)) &&
     !(a.excludeGenres ?? []).some((g) => m.genres.includes(g)) &&
+    (!a.languages?.length || a.languages.includes(m.language ?? "")) &&
+    !(a.excludeLanguages ?? []).includes(m.language ?? "") &&
     (a.people ?? []).every((p) => personMatches(m, p)) &&
     !(a.excludePeople ?? []).some((p) => personMatches(m, p)) &&
     (a.minRating === undefined || m.rating >= a.minRating) &&
