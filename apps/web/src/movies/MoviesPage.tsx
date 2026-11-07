@@ -286,8 +286,8 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
   // Task and "like" chips filter nothing, and the assistant's panel replaces the list while it works.
   const hasFilter = Object.keys(chipsToSearchHints(chips)).length > 0;
   const showResults = !!query.trim() && !running && (hasFilter || showSemantic || !!picks);
-  // The layout follows what is on screen: nothing to show centers the composer (home), anything else pins it to the bottom.
-  const home = !showResults && !searchError && !turns.length && !running && !lookup && !(showSemantic || searching);
+  // Home (centered composer) only while the input is empty and nothing is on screen; the first character switches to the search view.
+  const home = !query.trim() && !searchError && !turns.length && !running;
   const [layoutHome, setLayoutHome] = useState(home);
   useEffect(() => {
     if (home === layoutHome) return;

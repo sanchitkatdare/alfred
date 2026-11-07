@@ -116,6 +116,19 @@ const scenarios: { name: string; setup?(page: Page): Promise<unknown>; check(pag
     },
   },
   {
+    name: "the first character switches to the search view, and clearing returns to the centered view",
+    async check(page) {
+      const q = page.locator("#q:not([disabled])");
+      await q.waitFor({ timeout: TIMEOUT });
+      await page.locator(".sim.home").waitFor({ timeout: TIMEOUT });
+      await q.press("x");
+      await page.locator(".sim:not(.home)").waitFor({ timeout: TIMEOUT });
+      if (!(await page.evaluate("document.activeElement?.id === 'q'"))) throw new Error("the input lost focus after the switch");
+      await q.press("Backspace");
+      await page.locator(".sim.home").waitFor({ timeout: TIMEOUT });
+    },
+  },
+  {
     name: "an answer is dismissed when the input is edited or cleared",
     setup: (page) => page.route("**/api/movies/chat", reply("Try Heist (2001).")),
     async check(page) {
