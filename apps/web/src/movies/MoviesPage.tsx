@@ -9,7 +9,7 @@ import { AssistantPanel } from "./AssistantPanel";
 import { createMovieAssistant } from "./assistant";
 import type { CatalogMeta, Movie } from "./catalog";
 import { buildMovieParserConfig, MOVIE_ROUTER_OPTIONS } from "./config";
-import { loadCatalog, loadStories, loadSynopses, loadVectors, vectorBytes } from "./data";
+import { catalogLoadFailure, loadCatalog, onceUntilFailure, loadStories, loadSynopses, loadVectors, vectorBytes } from "./data";
 import { aboutAnswer, answerFromCatalog, buildTitleIndex, describeLookup, detectLookup, RUNS_ON_ENTER, type Lookup } from "./lookups";
 import { chipsToSearchHints } from "./hints";
 import { byRating, filterCatalog } from "./tools";
@@ -104,19 +104,12 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
   const titleIndex = useMemo(() => buildTitleIndex(catalog), [catalog]);
 
   // Vectors and synopses load right after the metadata; the search bar stays disabled until both have arrived.
-  const vectorsRef = useRef<Promise<VectorIndex> | null>(null);
+  const vectorsOnce = useRef(onceUntilFailure<VectorIndex>()).current;
   const reportLoad = useCallback(
     (file: string, bytes: number, ms: number) => dev.add(loadEntry, loadItem(file, bytes, ms)),
     [dev.add, loadEntry],
   );
-  const getVectors = useCallback(() => {
-    if (!vectorsRef.current) {
-      const p = loadVectors(meta, reportLoad, (n) => onBytes("vectors", n));
-      vectorsRef.current = p;
-      p.catch(() => vectorsRef.current === p && (vectorsRef.current = null));
-    }
-    return vectorsRef.current;
-  }, [meta, reportLoad, onBytes]);
+  const getVectors = useCallback(() => vectorsOnce(() => loadVectors(meta, reportLoad, (n) => onBytes("vectors", n))), [vectorsOnce, meta, reportLoad, onBytes]);
   const [synopses, setSynopses] = useState<Record<string, string>>({});
   // A failed file still ends the wait: filters work without it, and search by meaning shows its own error.
   const [dataReady, setDataReady] = useState(false);
@@ -457,7 +450,7 @@ function LoadingSearch({ devMode, onToggleDev }: { devMode: boolean; onToggleDev
   );
 }
 
-type CatalogState = { status: "loading" } | { status: "missing" } | { status: "ready"; meta: CatalogMeta; catalog: Movie[]; config: ParserConfig };
+type CatalogState = { status: "loading" } | { status: "missing" } | { status: "failed" } | { status: "ready"; meta: CatalogMeta; catalog: Movie[]; config: ParserConfig };
 
 const DEV_MODE_KEY = "alfred.devMode";
 function readDevMode(): boolean {
@@ -494,11 +487,8 @@ export function MoviesPage() {
       setLoaded(pendingBytes.current);
     });
   }, []);
-  // React's StrictMode runs effects twice in development; load (and log) the catalog once.
-  const loadStarted = useRef(false);
-  useEffect(() => {
-    if (loadStarted.current) return;
-    loadStarted.current = true;
+  const load = useCallback(() => {
+    setState({ status: "loading" });
     const entry = dev.start("load", "Page load");
     setLoadEntry(entry);
     const report = (file: string, bytes: number, ms: number) => dev.add(entry, loadItem(file, bytes, ms));
@@ -510,13 +500,32 @@ export function MoviesPage() {
         dev.add(entry, { stage: "rules", label: "Parser dictionaries built", detail: `${catalog.length.toLocaleString()} movies`, ms: Math.round(performance.now() - started) });
         setState({ status: "ready", meta, catalog, config });
       })
-      .catch(() => setState({ status: "missing" }));
+      .catch((e) => setState({ status: catalogLoadFailure(e) }));
   }, [dev.start, dev.add, onBytes]);
+  // React's StrictMode runs effects twice in development; load (and log) the catalog once.
+  const loadStarted = useRef(false);
+  useEffect(() => {
+    if (loadStarted.current) return;
+    loadStarted.current = true;
+    load();
+  }, [load]);
 
   if (state.status === "ready") {
     return <MovieSearch meta={state.meta} catalog={state.catalog} config={state.config} dev={dev} loadEntry={loadEntry} devMode={devMode} onToggleDev={toggleDev} progress={loadProgress(loaded, state.meta)} onBytes={onBytes} />;
   }
   if (state.status === "loading") return <LoadingSearch devMode={devMode} onToggleDev={toggleDev} />;
+  if (state.status === "failed") {
+    return (
+      <main className="page">
+        <section className="load-failed" role="alert">
+          <h1 className="home-title">Alfred, Movies!</h1>
+          <p>Could not load the movies. Check your connection and try again.</p>
+          <button type="button" className="btn" onClick={load}>Try again</button>
+        </section>
+        <Footer devMode={devMode} onToggleDev={toggleDev} />
+      </main>
+    );
+  }
   return (
     <main className="page">
       <header className="head">

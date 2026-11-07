@@ -37,6 +37,8 @@ export interface Turn {
   tier: "default" | "oracle";
   /** Movies from the tool results that the answer names, in answer order. The results list shows them. */
   picks?: number[];
+  /** A failed default-tier turn offers Oracle (not after the user pressed Stop). */
+  offerOracle?: boolean;
   /** Shown from the start of the turn, for example how long Oracle can take. */
   note?: string;
   timeline: TimelineItem[];
@@ -128,7 +130,7 @@ export function AssistantPanel({ turns, running, devMode, onStop, onReset, onOra
           </ol>
           {t.answer && <p className="answer">{plain(t.answer)}</p>}
           {t.error && <p className="answer failed">{t.error}</p>}
-          {t.error && t.tier === "default" && t === turns.at(-1) && !running && <button type="button" className="linkish oracle" onClick={onOracle}>Ask Oracle</button>}
+          {t.error && t.offerOracle && t === turns.at(-1) && !running && <button type="button" className="linkish oracle" onClick={onOracle}>Ask Oracle</button>}
         </div>
       ))}
       <p className="note">Follow-up questions continue this conversation.</p>

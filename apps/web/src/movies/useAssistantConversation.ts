@@ -6,6 +6,28 @@ import { isTimeout, QUESTION_LIMIT_MS, timeoutMessage, type AskOptions } from ".
 import { devItemFor, type DevLog } from "./devlog";
 import type { SearchHints } from "./hints";
 
+type Outcome = Pick<Turn, "status" | "answer" | "picks" | "error" | "offerOracle">;
+
+/**
+ * What the user sees when a run ends. Every failure says what happened and, where it can help, offers Oracle.
+ * `found` is the last search's movies (listed on a timeout); `seen` is every movie the tools returned (for picks).
+ */
+export function turnOutcome(result: AgentResult, tier: "default" | "oracle", found: { title: string; year: number }[], seen: { id: number; title: string }[]): Outcome {
+  const offerOracle = tier === "default";
+  if (result.status === "done") {
+    const answer = result.message?.content?.trim();
+    // An empty reply is a failure for the user, with the same way out as a timeout.
+    if (!answer) return { status: "failed", error: offerOracle ? "Alfred gave no answer. Try again, or ask Oracle." : "Oracle gave no answer. Try again.", offerOracle };
+    return { status: "done", answer, picks: answerPicks(answer, seen) };
+  }
+  if (isTimeout(result)) return { status: "failed", error: timeoutMessage(found, tier), offerOracle };
+  if (result.status === "limit_reached") return { status: "failed", error: "The assistant ran out of steps. Try a more specific question.", offerOracle };
+  const error = friendlyError(result.error ?? "The assistant failed.");
+  // The user pressed Stop: no suggestion needed.
+  if (error === "Aborted") return { status: "failed", error: "Stopped." };
+  return { status: "failed", error, offerOracle };
+}
+
 /** The agent conversation: visible turns, the history sent with follow-ups, and Stop. */
 export function useAssistantConversation(ask: (question: string, options: AskOptions) => Promise<AgentResult>, dev: DevLog, currentEntry: RefObject<number | null>) {
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -54,21 +76,11 @@ export function useAssistantConversation(ask: (question: string, options: AskOpt
         update((t) => ({ ...t, timeline: [...t.timeline, { kind: "model", label: "Stopped", ms }] }));
         dev.add(entry, { stage: "assistant", label: "Stopped", detail: result.error ?? "time limit", ms, serverCall: true });
       }
-      if (result.status === "done" && !result.message?.content?.trim()) {
-        // An empty reply is a failure for the user, with the same way out as a timeout.
-        update((t) => ({ ...t, status: "failed", error: tier === "oracle" ? "Oracle gave no answer. Try again." : "Alfred gave no answer. Try again, or ask Oracle." }));
-      } else if (result.status === "done") {
-        history.current = result.transcript.filter((m) => m.role !== "system");
-        const answer = result.message!.content!;
-        update((t) => ({ ...t, status: "done", answer, picks: answerPicks(answer, [...seen.values()]) }));
-      } else if (isTimeout(result)) {
-        update((t) => ({ ...t, status: "failed", error: timeoutMessage(found, tier) }));
-      } else {
-        const error = result.status === "limit_reached" ? "The assistant ran out of steps. Try a more specific question." : friendlyError(result.error ?? "The assistant failed.");
-        update((t) => ({ ...t, status: "failed", error: error === "Aborted" ? "Stopped." : error }));
-      }
+      const outcome = turnOutcome(result, tier, found, [...seen.values()]);
+      if (outcome.status === "done") history.current = result.transcript.filter((m) => m.role !== "system");
+      update((t) => ({ ...t, ...outcome }));
     } catch (e) {
-      update((t) => ({ ...t, status: "failed", error: friendlyError(e) }));
+      update((t) => ({ ...t, status: "failed", error: friendlyError(e), offerOracle: tier === "default" }));
     } finally {
       dev.finish(entry);
       currentEntry.current = null;

@@ -11,10 +11,44 @@ export type LoadReport = (file: string, bytes: number, ms: number) => void;
 /** Called as a file downloads, with the decoded bytes read so far. */
 export type ByteProgress = (bytes: number) => void;
 
+/** A file request that reached the server and got an error status. */
+export class HttpError extends Error {
+  constructor(readonly path: string, readonly status: number) {
+    super(`${path}: HTTP ${status}`);
+  }
+}
+
 async function fetchOk(path: string): Promise<Response> {
   const res = await fetch(url(path));
-  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+  if (!res.ok) throw new HttpError(path, res.status);
   return res;
+}
+
+/**
+ * Why the catalog did not load. "missing": the file is not there (404, or the dev server's HTML page instead of JSON),
+ * which only happens before a seed run. "failed": anything else (network, server error), which a retry may fix.
+ */
+export function catalogLoadFailure(error: unknown): "missing" | "failed" {
+  if (error instanceof HttpError) return error.status === 404 ? "missing" : "failed";
+  return error instanceof SyntaxError ? "missing" : "failed";
+}
+
+/**
+ * Shares one load between callers and keeps its result; after a failure the next call loads again.
+ * The search by meaning uses it for the vector file, so a dropped download is retried on the next search.
+ */
+export function onceUntilFailure<T>(): (load: () => Promise<T>) => Promise<T> {
+  let pending: Promise<T> | null = null;
+  return (load) => {
+    if (!pending) {
+      const p = load();
+      pending = p;
+      p.catch(() => {
+        if (pending === p) pending = null;
+      });
+    }
+    return pending;
+  };
 }
 
 /** Reads the whole body, reporting decoded bytes as they arrive. */

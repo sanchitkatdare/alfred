@@ -40,6 +40,7 @@ p { margin: 0; }
 .sim, .head, .foot { width: min(100%, 760px); justify-self: center; }
 /* Dev mode adds a side column, so the header and footer span the page again. */
 .page.with-dev .head, .page.with-dev .foot { width: auto; justify-self: stretch; }
+.load-failed { align-self: center; justify-self: center; display: grid; gap: 14px; justify-items: center; text-align: center; }
 .home-title { text-align: center; font-size: clamp(2rem, 6vw, 3rem); margin-bottom: 8px; }
 .page-title { text-align: center; }
 /* Leaving home animates: the browser morphs the title and the search form between their two places. */
