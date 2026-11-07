@@ -3,7 +3,7 @@ import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, us
 import { flushSync } from "react-dom";
 import tmdbLogo from "../../../../assets/tmdb.svg";
 import { createEmbedClient } from "./api";
-import { DevPanel } from "./DevPanel";
+import { describeHints, DevPanel } from "./DevPanel";
 import { short, useDevLog, type DevLog } from "./devlog";
 import { AssistantPanel } from "./AssistantPanel";
 import { createMovieAssistant } from "./assistant";
@@ -17,7 +17,7 @@ import { useWatched } from "./useWatched";
 import { wordSegments } from "./highlight";
 import { pipelineStages, type PipelineStage } from "./pipeline";
 import { ResultsPanel } from "./ResultsPanel";
-import { decideAppRoute, startsNewSearch, type AppRoute } from "./routing";
+import { decideAppRoute, type AppRoute } from "./routing";
 import { useAssistantConversation } from "./useAssistantConversation";
 import { searchKey, useSemanticSearch } from "./useSemanticSearch";
 import { rankByVector, type VectorIndex } from "./vectors";
@@ -67,14 +67,39 @@ function LoadBar({ progress }: { progress: number | null }) {
   );
 }
 
-/** Attribution, privacy note and the dev mode switch (a developer tool, so it stays out of the main view). */
+const icon = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
+const SunIcon = () => <svg {...icon}><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>;
+const MoonIcon = () => <svg {...icon}><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" /></svg>;
+const CodeIcon = () => <svg {...icon}><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16" /></svg>;
+
+/**
+ * Top-right corner, outside the layout flow: dev mode, and a theme icon that only swaps its own icon.
+ * The page stays dark-or-light as the system sets it: "Batman only works in black".
+ */
+function Corner({ devMode, onToggleDev }: { devMode: boolean; onToggleDev(): void }) {
+  const [sun, setSun] = useState(false);
+  return (
+    <div className="corner">
+      <button type="button" className="icon-btn" aria-label="Theme" data-tip="Batman only works in black" onClick={() => setSun((s) => !s)}>
+        {sun ? <SunIcon /> : <MoonIcon />}
+      </button>
+      <button type="button" className="icon-btn dev-toggle" aria-label="Dev mode" aria-pressed={devMode} data-tip={`Dev mode: ${devMode ? "on" : "off"}`} onClick={onToggleDev}>
+        <CodeIcon />
+      </button>
+    </div>
+  );
+}
+
+/** Attribution and privacy note. The corner controls render with it, so every page state has them. */
 function Footer({ devMode, onToggleDev }: { devMode: boolean; onToggleDev(): void }) {
   return (
-    <footer className="foot">
-      <p><img src={tmdbLogo} alt="TMDB" height={10} /> This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
-      <p>Search text and assistant questions are sent to Cloudflare Workers AI. Your watched list stays in this browser.</p>
-      <p><button type="button" className="linkish dev-toggle" aria-pressed={devMode} onClick={onToggleDev}>Dev mode: {devMode ? "on" : "off"}</button></p>
-    </footer>
+    <>
+      <Corner devMode={devMode} onToggleDev={onToggleDev} />
+      <footer className="foot">
+        <p><img src={tmdbLogo} alt="TMDB" height={10} /> This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+        <p>Search text and assistant questions are sent to Cloudflare Workers AI. Your watched list stays in this browser.</p>
+      </footer>
+    </>
   );
 }
 
@@ -173,9 +198,8 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
   const [ignoreLookup, setIgnoreLookup] = useState(false);
   const detected = useMemo(() => detectLookup(query, titleIndex), [query, titleIndex]);
   const lookup = ignoreLookup ? null : detected;
-  const [ignoreFollowUp, setIgnoreFollowUp] = useState(false);
-  const decision = decideAppRoute({ query, lookup, rules: ruleDecision, inConversation: turns.some((t) => t.status === "done"), ignoreFollowUp });
-  const followUp = decision.followUp;
+  // Each search starts fresh: no follow-ups on an earlier answer.
+  const decision = decideAppRoute({ query, lookup, rules: ruleDecision, inConversation: false, ignoreFollowUp: false });
   const deferredChips = useDeferredValue(chips);
   const live = useMemo(() => {
     // Same filter as the assistant's search_movies: chips become hard filters.
@@ -189,9 +213,9 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
 
   const { semantic, searching, searchError, setSearchError, runSearch } = useSemanticSearch({ catalog, byId, watched, dev, currentEntry, embed, getVectors });
   const logRules = (id: number) => {
-    dev.add(id, { stage: "rules", label: `Route: ${decision.route}`, detail: `${decision.reason} · parsed in ${parseMs.toFixed(2)} ms` });
+    dev.add(id, { stage: "rules", label: `Route: ${route.name}`, detail: decision.reason, ms: Number(parseMs.toFixed(2)) });
     const hints = chipsToSearchHints(chips);
-    if (Object.keys(hints).length) dev.add(id, { stage: "rules", label: "Hard filters from chips", detail: short(hints, 160) });
+    if (Object.keys(hints).length) dev.add(id, { stage: "rules", label: "Filters from your words", detail: describeHints(hints) });
   };
   // Lookups (Level 2 workflows): answered by code. Read-only ones show while typing; the rest run on Enter.
   const [lookupResult, setLookupResult] = useState<{ query: string; text: string } | null>(null);
@@ -215,8 +239,10 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
     setQuery(text.slice(0, MAX_QUERY_CHARS));
     setRemoved(new Set());
     setSearchError(null);
-    setIgnoreFollowUp(false);
     setIgnoreLookup(false);
+    // The answer belongs to its question: clearing or editing the input dismisses it (not while it is still running).
+    const last = turns.at(-1);
+    if (last && !running && text.trim() !== last.question) resetConversation();
   };
   const removeChip = (chip: Chip) => {
     setRemoved(new Set([...removed, chip.sig]));
@@ -230,16 +256,18 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
     inputRef.current?.focus();
   };
   const busy = searching || running;
-  const askAssistant = (tier?: "oracle") => runAssistant(query, chipsToSearchHints(chips), logRules, tier);
+  // Every question, Oracle included, starts a new conversation: the panel shows only the latest answer.
+  const askAssistant = (tier?: "oracle") => {
+    resetConversation();
+    return runAssistant(query, chipsToSearchHints(chips), logRules, tier);
+  };
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (busy) return;
     // Touch screens: close the keyboard so the answer has room.
     if (matchMedia("(pointer: coarse)").matches) inputRef.current?.blur();
-    if (startsNewSearch(query, ignoreFollowUp)) {
-      resetConversation();
-      window.scrollTo({ top: 0 });
-    }
+    resetConversation();
+    window.scrollTo({ top: 0 });
     if (decision.route === "lookup" && lookup) void runLookup(lookup);
     else if (decision.route === "assistant") void askAssistant();
     else if (decision.route === "semantic") void runSearch({ query, chips, text: parsed.leftover.join(" ") }, logRules);
@@ -301,12 +329,6 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
               <span className="chip lookup">
                 <span className="kind">lookup</span><span className="val">{describeLookup(lookup)}</span>
                 <button type="button" className="x" aria-label="Remove lookup" onClick={() => setIgnoreLookup(true)}>×</button>
-              </span>
-            )}
-            {followUp && (
-              <span className="chip task">
-                <span className="kind">task</span><span className="val">follow-up</span>
-                <button type="button" className="x" aria-label="Remove follow-up" onClick={() => setIgnoreFollowUp(true)}>×</button>
               </span>
             )}
             {devMode && parsed.leftover.map((w, i) => (
@@ -382,7 +404,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
         </div>}
 
         {/* The conversation sits below the list, next to the input it answers. */}
-        <AssistantPanel turns={turns} running={running} devMode={devMode} onStop={stop} onReset={resetConversation} onOracle={() => void askAssistant("oracle")} />
+        <AssistantPanel turns={turns} running={running} devMode={devMode} onStop={stop} onOracle={() => void askAssistant("oracle")} />
         </>}
       </section>
 
@@ -415,10 +437,17 @@ function Reel({ label }: { label: string }) {
 
 /** Dev mode: the stages used for the current text, each with a popup that shows its steps. */
 function Pipeline({ stages }: { stages: PipelineStage[] }) {
+  // The popup starts under the hovered stage, moved left only as far as needed to stay inside the line's width.
+  const place = (li: HTMLLIElement) => {
+    const pop = li.querySelector<HTMLElement>(".stage-pop");
+    const line = li.parentElement;
+    if (!pop || !line) return;
+    pop.style.left = `${Math.max(0, Math.min(li.offsetLeft, line.clientWidth - pop.offsetWidth))}px`;
+  };
   return (
     <ol className="pipeline" aria-label="Stages used">
       {stages.map((stage) => (
-        <li key={stage.id} className={`stage-${stage.id}${stage.ran ? " ran" : ""}`} tabIndex={0} aria-describedby={`stage-pop-${stage.id}`}>
+        <li key={stage.id} className={`stage-${stage.id}${stage.ran ? " ran" : ""}`} tabIndex={0} aria-describedby={`stage-pop-${stage.id}`} onMouseEnter={(e) => place(e.currentTarget)} onFocus={(e) => place(e.currentTarget)}>
           <span>{stage.label}</span>
           <span className="pipeline-ms">{stage.ran ? stage.time : "not used"}</span>
           <span className="stage-pop" id={`stage-pop-${stage.id}`} role="tooltip">

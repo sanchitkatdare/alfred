@@ -43,6 +43,8 @@ p { margin: 0; }
 .load-failed { align-self: center; justify-self: center; display: grid; gap: 14px; justify-items: center; text-align: center; }
 .home-title { text-align: center; font-size: clamp(2rem, 6vw, 3rem); margin-bottom: 8px; }
 .page-title { text-align: center; }
+/* Phones: the results title shares the top row with the corner icons, so it is smaller there. */
+@media (max-width: 767px) { .page-title { font-size: 1.5rem; } }
 /* Leaving home animates: the browser morphs the title and the search form between their two places. */
 .home-title, .page-title { view-transition-name: title; }
 .qbox { view-transition-name: search; }
@@ -114,12 +116,6 @@ p { margin: 0; }
 .results .empty { color: var(--muted); font-size: 13.5px; }
 .linkish { border: 0; background: none; padding: 0; color: var(--semantic); text-decoration: underline; font-size: 13px; }
 
-.route { border-radius: 10px; padding: 14px 16px; display: grid; gap: 6px; background: var(--sunken); font-size: 14px; }
-.route .name { font-family: var(--f-display); font-weight: 700; font-size: 1.2rem; }
-.route .cost { font-family: var(--f-mono); font-size: 12.5px; }
-.route.local { background: var(--local-bg); } .route.local .name { color: var(--local); }
-.route.semantic { background: var(--semantic-bg); } .route.semantic .name { color: var(--semantic); }
-.route.assistant { background: var(--llm-bg); } .route.assistant .name { color: var(--llm); }
 
 .trace { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .trace li { font-family: var(--f-mono); font-size: 12px; color: var(--muted); padding-left: 14px; position: relative; overflow-wrap: anywhere; }
@@ -154,8 +150,15 @@ p { margin: 0; }
 .answer.dismissible .x { border: 0; background: transparent; color: inherit; font-size: 16px; line-height: 1; padding: 0 2px; }
 
 /* Dev mode */
-.foot .dev-toggle { font-size: 12.5px; color: var(--muted); }
-.foot .dev-toggle[aria-pressed="true"] { color: var(--fg); }
+/* Corner controls: two icon buttons at the page's top-right, outside the layout flow. Tip on hover or keyboard focus. */
+.page { position: relative; }
+.corner { position: absolute; top: 12px; right: 12px; z-index: 6; display: flex; gap: 4px; }
+/* Wide screens in dev mode: the side panel starts below the corner icons. */
+@media (min-width: 1100px) { .page.with-dev .dev { margin-top: 28px; } }
+.icon-btn { position: relative; display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); }
+.icon-btn:hover { color: var(--fg); background: var(--sunken); }
+.icon-btn[aria-pressed="true"] { color: var(--fg); border-color: var(--line); background: var(--sunken); }
+.icon-btn[data-tip]:hover::after, .icon-btn[data-tip]:focus-visible::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0; padding: 4px 8px; border-radius: 6px; background: var(--fg); color: var(--bg); font-size: 12px; white-space: nowrap; pointer-events: none; }
 .layout { display: grid; gap: 24px; min-width: 0; }
 .main-col { display: grid; gap: 24px; min-width: 0; align-content: start; }
 .page.with-dev { max-width: 1760px; }
@@ -167,25 +170,39 @@ p { margin: 0; }
 .dev { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 12px; align-content: start; min-width: 0; font-size: 13px; }
 @media (min-width: 1100px) { .dev { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; } }
 .dev h3 { margin: 4px 0 0; font-family: var(--f-display); font-size: 1rem; }
-.dev-live { display: grid; gap: 8px; }
-.dev-stage { font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-.dev-kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 0; }
-.dev-kv dt { color: var(--muted); }
-.dev-kv dd { margin: 0; overflow-wrap: anywhere; }
-.dev-kv code, .dev-detail { font-family: var(--f-mono); font-size: 11.5px; }
-.dev-entry { border-top: 1px solid var(--line); padding-top: 10px; display: grid; gap: 6px; }
-.dev-entry-head { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
-.dev-kind { font-family: var(--f-mono); font-size: 11px; text-transform: uppercase; color: var(--muted); }
-.dev-title { font-weight: 600; overflow-wrap: anywhere; }
-.dev-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.dev-items li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 2px 8px; align-items: baseline; }
-.dev-items .dev-detail { grid-column: 2 / -1; grid-row: 2; color: var(--muted); overflow-wrap: anywhere; }
-.dev-metrics { grid-column: 3; grid-row: 1; font-family: var(--f-mono); font-size: 11.5px; white-space: nowrap; }
-.dev-stage-tag { justify-self: start; font-family: var(--f-mono); font-size: 10.5px; padding: 1px 6px; border-radius: 4px; background: var(--sunken); color: var(--muted); white-space: nowrap; }
-.dev-stage-tag.rules { background: var(--local-bg); color: var(--local); }
-.dev-stage-tag.search { background: var(--semantic-bg); color: var(--semantic); }
-.dev-stage-tag.assistant { background: var(--llm-bg); color: var(--llm); }
-.dev-total { font-family: var(--f-mono); font-size: 11.5px; color: var(--fg); }
+/* Dev panel: "as you type", then the latest request (summary, time per stage, one section per stage), usage, earlier requests. */
+.dev-now, .dev-card { display: grid; gap: 8px; border-radius: 10px; padding: 12px 14px; background: var(--bg); border: 1px solid var(--line); }
+.dev-now-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.route-badge { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: var(--sunken); color: var(--fg); white-space: nowrap; }
+.route-badge.local, .route-badge.lookup { background: var(--local-bg); color: var(--local); }
+.route-badge.semantic, .route-badge.search { background: var(--semantic-bg); color: var(--semantic); }
+.route-badge.assistant { background: var(--llm-bg); color: var(--llm); }
+.dev-title { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
+.dev-meta { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.dev-raw summary, .dev-earlier summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.dev-raw code { display: block; margin-top: 6px; font-family: var(--f-mono); font-size: 11.5px; overflow-wrap: anywhere; }
+.waterfall { list-style: none; margin: 4px 0; padding: 0; display: grid; gap: 5px; font-size: 12px; }
+.waterfall li { display: grid; grid-template-columns: 52px minmax(0, 1fr) 64px; gap: 8px; align-items: center; color: var(--muted); }
+.waterfall li.ran { color: var(--fg); }
+.waterfall-track { position: relative; height: 8px; border-radius: 4px; background: var(--sunken); overflow: hidden; }
+.waterfall-bar { position: absolute; top: 0; bottom: 0; border-radius: 4px; }
+.waterfall-ms { text-align: right; font-variant-numeric: tabular-nums; }
+.stage-rules .waterfall-bar { background: var(--local); }
+.stage-search .waterfall-bar { background: var(--semantic); }
+.stage-assistant .waterfall-bar { background: var(--llm); }
+.dev-section { border-top: 1px solid var(--line); padding-top: 8px; display: grid; gap: 6px; }
+.dev-section h4 { margin: 0; font-size: 12.5px; font-weight: 600; }
+.dev-section.stage-rules h4 { color: var(--local); }
+.dev-section.stage-search h4 { color: var(--semantic); }
+.dev-section.stage-assistant h4 { color: var(--llm); }
+.dev-section.unused { font-size: 12.5px; color: var(--muted); margin: 0; }
+.dev-section ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.dev-section li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 8px; }
+.dev-metrics { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dev-detail { grid-column: 1 / -1; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.dev-earlier { border-top: 1px solid var(--line); padding-top: 8px; display: grid; gap: 6px; }
+.dev-earlier summary { display: flex; justify-content: space-between; gap: 8px; }
+.dev-earlier-title { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chip.lookup { background: var(--local-bg); border-color: transparent; }
 .chip.lookup .kind, .chip.lookup .val { color: var(--local); }
 .lookup-answer { display: grid; gap: 6px; justify-items: start; background: var(--local-bg); border-radius: 10px; padding: 14px 16px; }
@@ -227,12 +244,10 @@ p { margin: 0; }
 .pipeline li.stage-assistant.ran::before { background: var(--llm); border-color: var(--llm); }
 /* Stage popup on hover, focus or tap: the stage as steps with arrows, then where it runs. */
 .pipeline { position: relative; }
-/* Raised above the page in both themes: a lighter fill, a ring and a soft glow in the stage's color, and a deep shadow. */
-.stage-pop { --stage: var(--muted); position: absolute; bottom: calc(100% + 10px); left: 0; z-index: 5; display: none; gap: 8px; width: max-content; max-width: min(340px, 100%); padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--stage) 55%, var(--line)); border-radius: 10px; background: color-mix(in srgb, var(--surface) 90%, var(--fg)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--stage) 35%, transparent), 0 0 32px color-mix(in srgb, var(--stage) 45%, transparent), 0 12px 32px rgb(0 0 0 / 0.35); color: var(--fg); cursor: default; }
-.stage-rules .stage-pop { --stage: var(--local); }
-.stage-search .stage-pop { --stage: var(--semantic); }
-.stage-assistant .stage-pop { --stage: var(--llm); }
-.pipeline li:hover .stage-pop, .pipeline li:focus .stage-pop { display: grid; }
+/* Raised above the page in both themes: a lighter fill, a soft white glow, and a deep shadow. Kept rendered but hidden,
+   so its width can be measured to place it under the hovered stage. */
+.stage-pop { position: absolute; bottom: calc(100% + 10px); left: 0; z-index: 5; display: grid; visibility: hidden; opacity: 0; transition: opacity 120ms; gap: 8px; width: max-content; max-width: min(340px, 100%); padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--fg) 25%, var(--line)); border-radius: 10px; background: color-mix(in srgb, var(--surface) 90%, var(--fg)); box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08), 0 0 28px rgb(255 255 255 / 0.16), 0 12px 32px rgb(0 0 0 / 0.35); color: var(--fg); cursor: default; }
+.pipeline li:hover .stage-pop, .pipeline li:focus .stage-pop { visibility: visible; opacity: 1; }
 .stage-pop .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .stage-pop .step { padding: 2px 8px; border-radius: 6px; background: var(--sunken); font-weight: 600; white-space: nowrap; }
 .stage-pop .arrow { color: var(--muted); }
@@ -258,7 +273,7 @@ p { margin: 0; }
 .timeline li.tool .timeline-bar { background: var(--semantic); }
 .timeline-value { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
 
-.cost-meter { display: grid; gap: 4px; font-size: 12px; margin-bottom: 12px; }
+.cost-meter { display: grid; gap: 4px; font-size: 12px; }
 .cost-row { display: flex; justify-content: space-between; gap: 8px; }
 .cost-track { display: block; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .cost-bar { display: block; height: 100%; background: var(--llm); }

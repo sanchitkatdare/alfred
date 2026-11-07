@@ -116,6 +116,22 @@ const scenarios: { name: string; setup?(page: Page): Promise<unknown>; check(pag
     },
   },
   {
+    name: "an answer is dismissed when the input is edited or cleared",
+    setup: (page) => page.route("**/api/movies/chat", reply("Try Heist (2001).")),
+    async check(page) {
+      const panel = page.locator(".assistant");
+      await ask(page, ASSISTANT);
+      await panel.waitFor({ timeout: TIMEOUT });
+      await page.locator("#q").fill(ASSISTANT.replace(" why", ""));
+      await panel.waitFor({ state: "detached", timeout: TIMEOUT });
+      await ask(page, ASSISTANT);
+      await panel.waitFor({ timeout: TIMEOUT });
+      await page.getByRole("button", { name: "Clear search" }).click();
+      await panel.waitFor({ state: "detached", timeout: TIMEOUT });
+      await page.locator(".sim.home").waitFor({ timeout: TIMEOUT });
+    },
+  },
+  {
     name: "storage blocked (private mode): the page works and Mark watched hides the movie",
     setup: (page) =>
       // A string, not a function: tsx rewrites functions with helpers that do not exist in the page.

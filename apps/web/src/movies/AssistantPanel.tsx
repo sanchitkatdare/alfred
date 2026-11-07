@@ -108,7 +108,7 @@ function Timeline({ items }: { items: TimelineItem[] }) {
   );
 }
 
-export function AssistantPanel({ turns, running, devMode, onStop, onReset, onOracle }: { turns: Turn[]; running: boolean; devMode: boolean; onStop(): void; onReset(): void; onOracle(): void }) {
+export function AssistantPanel({ turns, running, devMode, onStop, onOracle }: { turns: Turn[]; running: boolean; devMode: boolean; onStop(): void; onOracle(): void }) {
   if (!turns.length) return null;
   return (
     <section className="assistant" aria-label="Assistant" aria-live="polite">
@@ -116,7 +116,6 @@ export function AssistantPanel({ turns, running, devMode, onStop, onReset, onOra
         <h2>Assistant</h2>
         <div className="actions">
           {running && <button type="button" className="linkish" onClick={onStop}>Stop</button>}
-          {!running && <button type="button" className="linkish" onClick={onReset}>New conversation</button>}
         </div>
       </div>
       {turns.map((t) => (
@@ -133,7 +132,6 @@ export function AssistantPanel({ turns, running, devMode, onStop, onReset, onOra
           {t.error && t.offerOracle && t === turns.at(-1) && !running && <button type="button" className="linkish oracle" onClick={onOracle}>Ask Oracle</button>}
         </div>
       ))}
-      <p className="note">Follow-up questions continue this conversation.</p>
     </section>
   );
 }
