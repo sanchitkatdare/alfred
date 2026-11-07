@@ -131,7 +131,10 @@ p { margin: 0; }
 .btn.ghost { background: transparent; color: var(--fg); border-color: var(--line); }
 .btn:disabled { opacity: 0.55; cursor: progress; }
 /* Fixed width: the Search button keeps its size, and the input its width, when the web font replaces the fallback. */
-.qrow .btn { min-width: 88px; }
+.qrow .btn { min-width: 88px; display: inline-grid; place-items: center; }
+.reel { display: block; animation: reel-spin 1.2s linear infinite; }
+@keyframes reel-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .reel { animation: none; } }
 .counter { justify-self: end; }
 .actions { display: flex; gap: 8px; }
 .assistant { display: grid; gap: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 16px; background: var(--llm-bg); }
@@ -224,7 +227,11 @@ p { margin: 0; }
 .pipeline li.stage-assistant.ran::before { background: var(--llm); border-color: var(--llm); }
 /* Stage popup on hover, focus or tap: the stage as steps with arrows, then where it runs. */
 .pipeline { position: relative; }
-.stage-pop { position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 5; display: none; gap: 8px; width: max-content; max-width: min(340px, 100%); padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 8px 24px rgb(0 0 0 / 0.18); color: var(--fg); cursor: default; }
+/* Raised above the page in both themes: a lighter fill, a ring and a soft glow in the stage's color, and a deep shadow. */
+.stage-pop { --stage: var(--muted); position: absolute; bottom: calc(100% + 10px); left: 0; z-index: 5; display: none; gap: 8px; width: max-content; max-width: min(340px, 100%); padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--stage) 55%, var(--line)); border-radius: 10px; background: color-mix(in srgb, var(--surface) 90%, var(--fg)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--stage) 35%, transparent), 0 0 32px color-mix(in srgb, var(--stage) 45%, transparent), 0 12px 32px rgb(0 0 0 / 0.35); color: var(--fg); cursor: default; }
+.stage-rules .stage-pop { --stage: var(--local); }
+.stage-search .stage-pop { --stage: var(--semantic); }
+.stage-assistant .stage-pop { --stage: var(--llm); }
 .pipeline li:hover .stage-pop, .pipeline li:focus .stage-pop { display: grid; }
 .stage-pop .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .stage-pop .step { padding: 2px 8px; border-radius: 6px; background: var(--sunken); font-weight: 600; white-space: nowrap; }

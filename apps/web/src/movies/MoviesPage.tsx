@@ -342,7 +342,9 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
               {query && <button type="button" className="clear" aria-label="Clear search" onClick={() => { setText(""); inputRef.current?.focus(); }}>×</button>}
               {!dataReady && <LoadBar progress={progress} />}
             </div>
-            <button type="submit" className="btn" disabled={!dataReady || busy || decision.route === "empty"}>{busy ? "Working…" : "Search"}</button>
+            <button type="submit" className="btn" disabled={!dataReady || busy || decision.route === "empty"}>
+              {!dataReady ? <Reel label="Loading movies" /> : busy ? <Reel label="Searching" /> : "Search"}
+            </button>
           </div>
           {devMode && <Pipeline stages={pipelineStages(dev.entries.find((e) => e.kind !== "load" && e.title.trim() === query.trim()) ?? null, parseMs)} />}
           {query.length >= MAX_QUERY_CHARS - 50 && <span className="note counter">{query.length}/{MAX_QUERY_CHARS} characters</span>}
@@ -398,6 +400,19 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
   );
 }
 
+/** A spinning film reel: the Search button shows it in place of its text while movies load or a search runs, so its width stays the same. */
+function Reel({ label }: { label: string }) {
+  return (
+    <svg className="reel" viewBox="0 0 24 24" width="22" height="22" role="img" aria-label={label}>
+      <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2" />
+      <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+      {[0, 72, 144, 216, 288].map((a) => (
+        <circle key={a} cx={12 + 5.5 * Math.sin((a * Math.PI) / 180)} cy={12 - 5.5 * Math.cos((a * Math.PI) / 180)} r="2.2" fill="currentColor" />
+      ))}
+    </svg>
+  );
+}
+
 /** Dev mode: the stages used for the current text, each with a popup that shows its steps. */
 function Pipeline({ stages }: { stages: PipelineStage[] }) {
   return (
@@ -437,7 +452,7 @@ function LoadingSearch({ devMode, onToggleDev }: { devMode: boolean; onToggleDev
                     <input id="q" type="text" disabled placeholder={loadingLabel(null)} />
                     <LoadBar progress={null} />
                   </div>
-                  <button type="button" className="btn" disabled>Search</button>
+                  <button type="button" className="btn" disabled><Reel label="Loading movies" /></button>
                 </div>
                 {devMode && <Pipeline stages={pipelineStages(null, 0)} />}
               </div>
