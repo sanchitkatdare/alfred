@@ -106,28 +106,29 @@ function Timeline({ items }: { items: TimelineItem[] }) {
   );
 }
 
-export function AssistantPanel({ turns, running, devMode, onStop, onReset }: { turns: Turn[]; running: boolean; devMode: boolean; onStop(): void; onReset(): void }) {
+export function AssistantPanel({ turns, running, devMode, onStop, onReset, onOracle }: { turns: Turn[]; running: boolean; devMode: boolean; onStop(): void; onReset(): void; onOracle(): void }) {
   if (!turns.length) return null;
   return (
     <section className="assistant" aria-label="Assistant" aria-live="polite">
       <div className="panel-head">
         <h2>Assistant</h2>
         <div className="actions">
-          {running && <button type="button" className="btn ghost" onClick={onStop}>Stop</button>}
-          {!running && <button type="button" className="btn ghost" onClick={onReset}>New conversation</button>}
+          {running && <button type="button" className="linkish" onClick={onStop}>Stop</button>}
+          {!running && <button type="button" className="linkish" onClick={onReset}>New conversation</button>}
         </div>
       </div>
       {turns.map((t) => (
         <div key={t.id} className="turn">
           <p className="question">{t.question}</p>
           {t.note && <p className="note">{t.note}</p>}
-          <Timeline items={t.timeline} />
+          {devMode && <Timeline items={t.timeline} />}
           <ol className="steps">
             {t.steps.filter((s) => devMode || s.kind === "error").map((s, j) => <li key={j} className={`step ${s.kind}`}>{s.text}</li>)}
             {t.status === "running" && <li className="step think">Working…</li>}
           </ol>
           {t.answer && <p className="answer">{plain(t.answer)}</p>}
           {t.error && <p className="answer failed">{t.error}</p>}
+          {t.error && t.tier === "default" && t === turns.at(-1) && !running && <button type="button" className="linkish oracle" onClick={onOracle}>Ask Oracle</button>}
         </div>
       ))}
       <p className="note">Follow-up questions continue this conversation.</p>

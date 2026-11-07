@@ -67,11 +67,13 @@ function LoadBar({ progress }: { progress: number | null }) {
   );
 }
 
-function Footer() {
+/** Attribution, privacy note and the dev mode switch (a developer tool, so it stays out of the main view). */
+function Footer({ devMode, onToggleDev }: { devMode: boolean; onToggleDev(): void }) {
   return (
     <footer className="foot">
       <p><img src={tmdbLogo} alt="TMDB" height={10} /> This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
       <p>Search text and assistant questions are sent to Cloudflare Workers AI. Your watched list stays in this browser.</p>
+      <p><button type="button" className="linkish dev-toggle" aria-pressed={devMode} onClick={onToggleDev}>Dev mode: {devMode ? "on" : "off"}</button></p>
     </footer>
   );
 }
@@ -259,9 +261,12 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
     ? picks.map((id) => byId.get(id)).filter((m): m is Movie => !!m && !watched.has(m.id))
     : showSemantic ? semantic!.movies.filter((m) => !watched.has(m.id)) : live.movies.slice(0, 10);
   // Results show once the query has a chip or filter, or after a search by meaning; free text alone is not a filter.
-  const showResults = !!query.trim() && (chips.length > 0 || !!lookup || !!followUp || showSemantic || !!picks);
+  // Results show for a real filter (genre, language, person, year, runtime, rating), a search by meaning or the assistant's picks.
+  // Task and "like" chips filter nothing, and the assistant's panel replaces the list while it works.
+  const hasFilter = Object.keys(chipsToSearchHints(chips)).length > 0;
+  const showResults = !!query.trim() && !running && (hasFilter || showSemantic || !!picks);
   // The layout follows what is on screen: nothing to show centers the composer (home), anything else pins it to the bottom.
-  const home = !showResults && !searchError && !turns.length && !running && !lookup;
+  const home = !showResults && !searchError && !turns.length && !running && !lookup && !(showSemantic || searching);
   const [layoutHome, setLayoutHome] = useState(home);
   useEffect(() => {
     if (home === layoutHome) return;
@@ -273,13 +278,6 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
 
   return (
     <main className={`page${devMode ? " with-dev" : ""}`}>
-      <header className="head">
-        <div className="head-row">
-          <button type="button" className="btn ghost dev-toggle" aria-pressed={devMode} onClick={onToggleDev}>
-            Dev mode: {devMode ? "on" : "off"}
-          </button>
-        </div>
-      </header>
 
       <div className="layout">
       <div className="main-col">
@@ -318,7 +316,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
                 <button type="button" className="x" aria-label="Remove follow-up" onClick={() => setIgnoreFollowUp(true)}>×</button>
               </span>
             )}
-            {parsed.leftover.map((w, i) => (
+            {devMode && parsed.leftover.map((w, i) => (
               <span key={`${w}-${i}`} className="chip free"><span className="kind">free text</span><span className="val">{w}</span></span>
             ))}
             {parsed.suggestion && (
@@ -370,6 +368,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
         {(showResults || searchError) && <div className="grid">
           <ResultsPanel
             semantic={showSemantic && !picks ? semantic : null}
+            devMode={devMode}
             picksBy={picks ? (lastTurn!.tier === "oracle" ? "Oracle" : "Alfred") : undefined}
             matchCount={live.movies.length}
             catalogSize={catalog.length}
@@ -388,7 +387,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
         </div>}
 
         {/* The conversation sits below the list, next to the input it answers. */}
-        <AssistantPanel turns={turns} running={running} devMode={devMode} onStop={stop} onReset={resetConversation} />
+        <AssistantPanel turns={turns} running={running} devMode={devMode} onStop={stop} onReset={resetConversation} onOracle={() => void askAssistant("oracle")} />
         </>}
       </section>
 
@@ -401,7 +400,7 @@ function MovieSearch({ meta, catalog, config, dev, loadEntry, devMode, onToggleD
       )}
       </div>
 
-      <Footer />
+      <Footer devMode={devMode} onToggleDev={onToggleDev} />
     </main>
   );
 }
@@ -428,11 +427,6 @@ function Pipeline({ stages }: { stages: PipelineStage[] }) {
 function LoadingSearch({ devMode, onToggleDev }: { devMode: boolean; onToggleDev(): void }) {
   return (
     <main className={`page${devMode ? " with-dev" : ""}`}>
-      <header className="head">
-        <div className="head-row">
-          <button type="button" className="btn ghost dev-toggle" aria-pressed={devMode} onClick={onToggleDev}>Dev mode: {devMode ? "on" : "off"}</button>
-        </div>
-      </header>
       <div className="layout">
         <div className="main-col">
           <section className="sim home" aria-label="Movie search" aria-busy="true">
@@ -458,7 +452,7 @@ function LoadingSearch({ devMode, onToggleDev }: { devMode: boolean; onToggleDev
           </section>
         </div>
       </div>
-      <Footer />
+      <Footer devMode={devMode} onToggleDev={onToggleDev} />
     </main>
   );
 }

@@ -30,7 +30,7 @@ p { margin: 0; }
 .note { font-size: 13px; color: var(--muted); }
 
 /* Mobile first: base rules are for phones; wider screens add columns. */
-.page { --pad-top: 20px; --gap: 20px; max-width: 1440px; min-height: 100dvh; margin: 0 auto; padding-inline: 16px; padding-block: var(--pad-top) 48px; display: grid; grid-template-rows: auto 1fr auto; gap: var(--gap); }
+.page { --pad-top: 20px; --gap: 20px; max-width: 1440px; min-height: 100dvh; margin: 0 auto; padding-inline: 16px; padding-block: var(--pad-top) 48px; display: grid; grid-template-rows: 1fr auto; gap: var(--gap); }
 @media (min-width: 768px) { .page { --pad-top: 32px; --gap: 24px; padding-inline: 24px; padding-bottom: 64px; } }
 .head { display: grid; gap: 6px; }
 
@@ -46,13 +46,17 @@ p { margin: 0; }
 .home-title, .page-title { view-transition-name: title; }
 .qbox { view-transition-name: search; }
 ::view-transition-group(*) { animation-duration: 350ms; animation-timing-function: cubic-bezier(0.2, 0, 0, 1); }
+/* No whole-page cross-fade: the old page would show through the new one. The new page fades in; only the title and search move. */
+::view-transition-old(root) { animation: none; opacity: 0; }
 /* After the first search the column fills the page height, so the composer stays at the bottom however many results show. */
 .main-col:has(> .sim:not(.home)) { align-content: stretch; }
-/* At least the viewport height below the header (the 36 px dev toggle), so the composer's own position is never above
-   the bottom edge and the sticky rule always holds it there, with 2 results or 10. */
-.sim:not(.home) { display: flex; flex-direction: column; min-height: calc(100dvh - var(--pad-top) - var(--gap) - 36px); }
+/* At least the viewport height below the top padding, so the composer's own position is never above the bottom edge
+   and the sticky rule always holds it there, with 2 results or 10. */
+.sim:not(.home) { display: flex; flex-direction: column; min-height: calc(100dvh - var(--pad-top)); }
 .composer { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.sim:not(.home) .composer { order: 99; position: sticky; bottom: var(--kb, 0px); z-index: 2; margin-top: auto; padding: 12px 0; background: var(--bg); border-top: 1px solid var(--line); }
+.sim:not(.home) .composer { order: 99; position: sticky; bottom: var(--kb, 0px); z-index: 2; padding: 12px 0; background: var(--bg); border-top: 1px solid var(--line); }
+/* The free space sits under the title, so short content (an answer, 2 results) rests just above the input, as in a chat. */
+.sim:not(.home) .page-title { margin-bottom: auto; }
 /* One slot above the input holds examples (empty input) or chips (text). It wraps, never scrolls sideways, and never moves
    the input: at home the input is the middle row of three and the title and slot grow upward from it; after the first search
    the pinned composer grows upward. */
@@ -102,7 +106,8 @@ p { margin: 0; }
 .results .row:hover .t { text-decoration: underline; }
 .results .more { display: grid; gap: 6px; justify-items: start; padding-bottom: 12px; }
 .results .t { font-weight: 600; }
-.results .m { font-family: var(--f-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.results .m { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.results .t .y { font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
 .results .w { border: 0; background: transparent; color: var(--muted); font-size: 12.5px; padding: 3px 0; }
 .results .w:hover { color: var(--fg); text-decoration: underline; }
 .results .empty { color: var(--muted); font-size: 13.5px; }
@@ -145,9 +150,8 @@ p { margin: 0; }
 .answer.dismissible .x { border: 0; background: transparent; color: inherit; font-size: 16px; line-height: 1; padding: 0 2px; }
 
 /* Dev mode */
-.head-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-.dev-toggle { min-height: 36px; font-size: 13px; margin-left: auto; }
-.dev-toggle[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.foot .dev-toggle { font-size: 12.5px; color: var(--muted); }
+.foot .dev-toggle[aria-pressed="true"] { color: var(--fg); }
 .layout { display: grid; gap: 24px; min-width: 0; }
 .main-col { display: grid; gap: 24px; min-width: 0; align-content: start; }
 .page.with-dev { max-width: 1760px; }
@@ -229,7 +233,8 @@ p { margin: 0; }
 .stage-assistant .stage-pop .step { background: var(--llm-bg); color: var(--llm); }
 .stage-pop .note { font-size: 12px; color: var(--muted); }
 
-.score { display: flex; height: 5px; border-radius: 3px; overflow: hidden; background: var(--line); }
+.score { display: block; height: 5px; border-radius: 3px; overflow: hidden; background: var(--line); }
+.score-fill { display: flex; height: 100%; }
 .score-meaning { background: var(--semantic); }
 .score-bonus { background: var(--local); }
 /* Outside dev mode: one thin bar, no meaning/popularity split. */
@@ -254,5 +259,4 @@ p { margin: 0; }
 @media (pointer: coarse) {
   .chip .x { width: 32px; height: 32px; }
   .ex, .results .w, .linkish { min-height: 36px; }
-  .results .w { padding-inline: 8px; }
 }

@@ -18,9 +18,10 @@ export function isTimeout(result: AgentResult): boolean {
 }
 
 /** Answer without the LLM when time runs out: the movies its last search found, if any. */
-export function timeoutMessage(movies: { title: string; year: number }[]): string {
-  if (!movies.length) return "Ran out of time. Try describing the movie differently.";
-  return `Ran out of time. Closest matches found so far:\n${movies.map((m) => `- ${m.title} (${m.year})`).join("\n")}`;
+export function timeoutMessage(movies: { title: string; year: number }[], tier: "default" | "oracle" = "default"): string {
+  const slow = tier === "oracle" ? "Oracle took too long. Try again." : "Alfred took too long. Try again, or ask Oracle.";
+  if (!movies.length) return slow;
+  return `${slow} Closest matches found so far:\n${movies.map((m) => `- ${m.title} (${m.year})`).join("\n")}`;
 }
 
 export interface AskOptions {

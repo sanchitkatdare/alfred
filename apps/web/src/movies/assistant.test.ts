@@ -58,7 +58,8 @@ describe("movie assistant", () => {
 
   it("lists found movies when time runs out, without inventing any", () => {
     expect(timeoutMessage([{ title: "Heat", year: 1995 }])).toContain("- Heat (1995)");
-    expect(timeoutMessage([])).toBe("Ran out of time. Try describing the movie differently.");
+    expect(timeoutMessage([])).toBe("Alfred took too long. Try again, or ask Oracle.");
+    expect(timeoutMessage([], "oracle")).toBe("Oracle took too long. Try again.");
   });
 
   it("treats both time limits as a timeout, and other failures not", () => {

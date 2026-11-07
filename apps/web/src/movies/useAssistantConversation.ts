@@ -54,12 +54,15 @@ export function useAssistantConversation(ask: (question: string, options: AskOpt
         update((t) => ({ ...t, timeline: [...t.timeline, { kind: "model", label: "Stopped", ms }] }));
         dev.add(entry, { stage: "assistant", label: "Stopped", detail: result.error ?? "time limit", ms, serverCall: true });
       }
-      if (result.status === "done") {
+      if (result.status === "done" && !result.message?.content?.trim()) {
+        // An empty reply is a failure for the user, with the same way out as a timeout.
+        update((t) => ({ ...t, status: "failed", error: tier === "oracle" ? "Oracle gave no answer. Try again." : "Alfred gave no answer. Try again, or ask Oracle." }));
+      } else if (result.status === "done") {
         history.current = result.transcript.filter((m) => m.role !== "system");
-        const answer = result.message?.content || "(no answer)";
+        const answer = result.message!.content!;
         update((t) => ({ ...t, status: "done", answer, picks: answerPicks(answer, [...seen.values()]) }));
       } else if (isTimeout(result)) {
-        update((t) => ({ ...t, status: "failed", error: timeoutMessage(found) }));
+        update((t) => ({ ...t, status: "failed", error: timeoutMessage(found, tier) }));
       } else {
         const error = result.status === "limit_reached" ? "The assistant ran out of steps. Try a more specific question." : friendlyError(result.error ?? "The assistant failed.");
         update((t) => ({ ...t, status: "failed", error: error === "Aborted" ? "Stopped." : error }));
